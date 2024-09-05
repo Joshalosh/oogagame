@@ -21,6 +21,11 @@ int entry(int argc, char **argv) {
 	while (!window.should_close) {
 		reset_temporary_storage();
 
+		draw_frame.projection = m4_make_orthographic_projection(window.width  * -0.5, window.width  * 0.5, 
+																window.height * -0.5, window.height * 0.5, -1, 10);
+		float zoom = 5.3; 
+		draw_frame.camera_xform = m4_make_scale(v3(1.0/zoom, 1.0/zoom, 1.0));
+
 		f64 now = os_get_elapsed_seconds();
 		f64 delta_t = now - last_time;
 		last_time = now;
@@ -49,9 +54,11 @@ int entry(int argc, char **argv) {
 		player_pos = v2_add(player_pos, v2_mulf(input_axis, 100.0f * delta_t));
 		
 		
+		Vector2 player_size = v2(16.0, 16.0);
 		Matrix4 rect_xform = m4_scalar(1.0);
 		rect_xform         = m4_translate(rect_xform, v3(player_pos.x, player_pos.y, 0));
-		draw_image_xform(player, rect_xform, v2(250, 250), COLOR_WHITE);
+		rect_xform         = m4_translate(rect_xform, v3(player_size.x * -0.5, 0, 0));
+		draw_image_xform(player, rect_xform, player_size, COLOR_WHITE);
 		
 		//draw_rect(v2(sin(now)*window.width*0.4-60, -60), v2(120, 120), COLOR_RED);
 		
