@@ -1,4 +1,37 @@
 
+#include "range.c"
+
+#define TILE_WIDTH  8
+#define TILE_HEIGHT 8
+
+int world_to_tile_pos(float world_pos){
+	return world_pos / (float)TILE_WIDTH;
+
+}
+
+bool almost_equals(float a, float b, float epsilon) {
+	return fabs(a - b) <= epsilon;
+}
+
+// NOTE: This is a very cool and smooth function for interpolating to a target,
+// me likey. I guess it's a lerp with smoothing/damping 
+bool animate_f32_to_target(float *value, float target, float delta_t, float rate) {
+	if (almost_equals(*value, target, 0.001f)) {
+		*value = target;
+		return true; // NOTE: The target has been reached
+	}
+	*value += (target - *value) * (1.0 - pow(2.0f, -rate * delta_t));
+	return false; // NOTE: The target still has not been reached
+}
+
+// NOTE: This is just a vectorised version of cool function because c doesn't
+// have any operator overloading
+void animate_v2_to_target(Vector2 *value, Vector2 target, float delta_t, float rate) {
+	animate_f32_to_target(&(value->x), target.x, delta_t, rate);
+	animate_f32_to_target(&(value->y), target.y, delta_t, rate);
+
+}
+
 typedef enum Sprite_ID {
 	SpriteID_none,
 	SpriteID_player,
@@ -80,6 +113,27 @@ void player_init(Entity *entity) {
 	entity->sprite_id = SpriteID_player;
 }
 
+Vector2 mouse_screen_to_world() {
+	float mouse_x 		= input_frame.mouse_x;
+	float mouse_y 		= input_frame.mouse_y;
+	Matrix4 proj  		= draw_frame.projection;
+	Matrix4 view  		= draw_frame.camera_xform;
+	float window_width  = window.width;
+	float window_height = window.height;
+
+	// NOTE: Normalise the mouse coordinates
+	float ndc_x = (mouse_x / (window_width  * 0.5)) - 1.0f;
+	float ndc_y = (mouse_y / (window_height * 0.5)) - 1.0f;
+
+	// NOTE: Transform the world coordinates
+	Vector4 world_pos = v4(ndc_x, ndc_y, 0, 1);
+	world_pos = m4_transform(m4_inverse(proj), world_pos);
+	world_pos = m4_transform(view, world_pos);
+
+	// NOTE: Return as 2D vector
+	return (Vector2){world_pos.x, world_pos.y};
+}
+
 int entry(int argc, char **argv) {
 	
 	// This is how we (optionally) configure the window.
@@ -122,20 +176,75 @@ int entry(int argc, char **argv) {
 	f64 seconds_counter = 0.0;
 	s32 frame_count 	= 0;
 
+	float zoom = 5.3; 
+	Vector2 camera_pos = v2(0, 0);
+
 	f64 last_time = os_get_elapsed_seconds();
 	while (!window.should_close) {
 		reset_temporary_storage();
 
-		draw_frame.projection = m4_make_orthographic_projection(window.width  * -0.5, window.width  * 0.5, 
-																window.height * -0.5, window.height * 0.5, -1, 10);
-		float zoom = 5.3; 
-		draw_frame.camera_xform = m4_make_scale(v3(1.0/zoom, 1.0/zoom, 1.0));
-
 		f64 now = os_get_elapsed_seconds();
 		f64 delta_t = now - last_time;
 		last_time = now;
-
         os_update(); 
+
+		draw_frame.projection = m4_make_orthographic_projection(window.width  * -0.5, window.width  * 0.5, 
+																window.height * -0.5, window.height * 0.5, -1, 10);
+		//
+		// CAMERA
+		//
+		{
+			Vector2 target_pos = player_entity->pos;
+			animate_v2_to_target(&camera_pos, target_pos, delta_t, 15.0f);
+
+			draw_frame.camera_xform = m4_make_scale(v3(1, 1, 1));
+			draw_frame.camera_xform = m4_mul(draw_frame.camera_xform, m4_make_translation(v3(camera_pos.x, camera_pos.y, 0)));
+			draw_frame.camera_xform = m4_mul(draw_frame.camera_xform, m4_make_scale(v3(1.0/zoom, 1.0/zoom, 1.0)));
+		}
+
+		//
+		// Mouse position in world space test
+		//
+		{
+			Vector2 mouse_pos = mouse_screen_to_world();
+
+			for (int i = 0; i < MAX_ENTITY_COUNT; i++) {
+				Entity *entity = &world->entities[i];
+				if (entity->is_valid) {
+					Sprite *sprite = get_sprite(entity->sprite_id);
+					Range2f bounds = range2f_make_bottom_center(sprite->size);
+					bounds = range2f_offset(bounds, entity->pos);
+
+					Vector4 color = COLOR_GREEN;
+					color.a = 0.4;
+					if (range2f_contains(bounds, mouse_pos)) {
+						color.a = 1.0;
+					}
+
+					draw_rect(bounds.min, range2f_size(bounds), color);
+				}
+			}
+		}
+
+		//
+		// Tile grid shenanigans
+		//
+		{
+			int player_tile_x = world_to_tile_pos(player_entity->pos.x);
+			int player_tile_y = world_to_tile_pos(player_entity->pos.y);
+			int tile_radius_x = 40;
+			int tile_radius_y = 30;
+
+			for(int x = player_tile_x - tile_radius_x; x < player_tile_x + tile_radius_x; x++) {
+				for (int y = player_tile_y - tile_radius_y; y < player_tile_y + tile_radius_y; y++) {
+					if ((x + (y % 2 == 0)) % 2 == 0) {
+						float x_pos = x * TILE_WIDTH;
+						float y_pos = y * TILE_HEIGHT;
+						draw_rect(v2(x_pos, y_pos), v2(TILE_WIDTH, TILE_HEIGHT), v4(1.0, 1.0, 1.0, 0.1));
+					}
+				}
+			}
+		}
 
 		// NOTE: This is where we draw the entities, setup happens earlier
 		// but the actual draw happens now, that's why sprite info is needed
