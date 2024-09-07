@@ -1,12 +1,23 @@
 
 #include "range.c"
 
-#define TILE_WIDTH  8
-#define TILE_HEIGHT 8
+#define TILE_WIDTH  16
+#define TILE_HEIGHT 16
 
-int world_to_tile_pos(float world_pos){
-	return world_pos / (float)TILE_WIDTH;
+int world_pos_to_tile_pos(float world_pos){
+	int result = roundf(world_pos / (float)TILE_WIDTH);
+	return result;
+}
 
+float tile_pos_to_world_pos(int tile_pos) {
+	float result = ((float)tile_pos * (float)TILE_WIDTH);
+	return result;
+}
+
+Vector2 round_v2_to_tile(Vector2 world_pos){
+	world_pos.x = tile_pos_to_world_pos(world_pos_to_tile_pos(world_pos.x));
+	world_pos.y = tile_pos_to_world_pos(world_pos_to_tile_pos(world_pos.y));
+	return world_pos;
 }
 
 bool almost_equals(float a, float b, float epsilon) {
@@ -150,7 +161,7 @@ int entry(int argc, char **argv) {
 	sprites[SpriteID_player] = (Sprite){ .image=load_image_from_disk(STR("player.png"), get_heap_allocator()), .size=v2( 8,  8) };
 	sprites[SpriteID_tree0]  = (Sprite){ .image=load_image_from_disk(STR("tree00.png"), get_heap_allocator()), .size=v2(16, 16) };
 	sprites[SpriteID_tree1]  = (Sprite){ .image=load_image_from_disk(STR("tree01.png"), get_heap_allocator()), .size=v2(16, 16) };
-	sprites[SpriteID_rock0]  = (Sprite){ .image=load_image_from_disk(STR("rock00.png"), get_heap_allocator()), .size=v2(16, 16) };
+	sprites[SpriteID_rock0]  = (Sprite){ .image=load_image_from_disk(STR("rock00.png"), get_heap_allocator()), .size=v2(13,  9) };
 
 	Entity *player_entity = create_entity();
 	player_init(player_entity);
@@ -162,6 +173,8 @@ int entry(int argc, char **argv) {
 		f32 random_pos_x = get_random_float32_in_range(-random_spray_size, random_spray_size);
 		f32 random_pos_y = get_random_float32_in_range(-random_spray_size, random_spray_size);
 		entity->pos = v2(random_pos_x, random_pos_y);
+		entity->pos = round_v2_to_tile(entity->pos);
+		entity->pos.y -= TILE_WIDTH * 0.5;
 	}
 
 	for (int i = 0; i < 10; i++) {
@@ -171,6 +184,8 @@ int entry(int argc, char **argv) {
 		f32 random_pos_x = get_random_float32_in_range(-random_spray_size, random_spray_size);
 		f32 random_pos_y = get_random_float32_in_range(-random_spray_size, random_spray_size);
 		entity->pos = v2(random_pos_x, random_pos_y);
+		entity->pos = round_v2_to_tile(entity->pos);
+		entity->pos.y -= TILE_WIDTH * 0.5;
 	}
 
 	f64 seconds_counter = 0.0;
@@ -205,24 +220,24 @@ int entry(int argc, char **argv) {
 		//
 		// Mouse position in world space test
 		//
-		{
-			Vector2 mouse_pos = mouse_screen_to_world();
+		Vector2 mouse_pos = mouse_screen_to_world();
+		int mouse_tile_x  = world_pos_to_tile_pos(mouse_pos.x);
+		int mouse_tile_y  = world_pos_to_tile_pos(mouse_pos.y);
 
-			for (int i = 0; i < MAX_ENTITY_COUNT; i++) {
-				Entity *entity = &world->entities[i];
-				if (entity->is_valid) {
-					Sprite *sprite = get_sprite(entity->sprite_id);
-					Range2f bounds = range2f_make_bottom_center(sprite->size);
-					bounds = range2f_offset(bounds, entity->pos);
+		for (int i = 0; i < MAX_ENTITY_COUNT; i++) {
+			Entity *entity = &world->entities[i];
+			if (entity->is_valid) {
+				Sprite *sprite = get_sprite(entity->sprite_id);
+				Range2f bounds = range2f_make_bottom_center(sprite->size);
+				bounds = range2f_offset(bounds, entity->pos);
 
-					Vector4 color = COLOR_GREEN;
-					color.a = 0.4;
-					if (range2f_contains(bounds, mouse_pos)) {
-						color.a = 1.0;
-					}
-
-					draw_rect(bounds.min, range2f_size(bounds), color);
+				Vector4 color = COLOR_GREEN;
+				color.a = 0.4;
+				if (range2f_contains(bounds, mouse_pos)) {
+					color.a = 1.0;
 				}
+
+				draw_rect(bounds.min, range2f_size(bounds), color);
 			}
 		}
 
@@ -230,20 +245,25 @@ int entry(int argc, char **argv) {
 		// Tile grid shenanigans
 		//
 		{
-			int player_tile_x = world_to_tile_pos(player_entity->pos.x);
-			int player_tile_y = world_to_tile_pos(player_entity->pos.y);
-			int tile_radius_x = 40;
-			int tile_radius_y = 30;
+			int player_tile_x  		= world_pos_to_tile_pos(player_entity->pos.x);
+			int player_tile_y  		= world_pos_to_tile_pos(player_entity->pos.y);
+			int tile_radius_x  		= 40;
+			int tile_radius_y 		= 30;
+			float half_tile_width   = (float)TILE_WIDTH   * -0.5;
+			float half_tile_height  = (float)TILE_HEIGHT  * -0.5;
 
 			for(int x = player_tile_x - tile_radius_x; x < player_tile_x + tile_radius_x; x++) {
 				for (int y = player_tile_y - tile_radius_y; y < player_tile_y + tile_radius_y; y++) {
 					if ((x + (y % 2 == 0)) % 2 == 0) {
 						float x_pos = x * TILE_WIDTH;
 						float y_pos = y * TILE_HEIGHT;
-						draw_rect(v2(x_pos, y_pos), v2(TILE_WIDTH, TILE_HEIGHT), v4(1.0, 1.0, 1.0, 0.1));
+						draw_rect(v2(x_pos + half_tile_width, y_pos + half_tile_height), v2(TILE_WIDTH, TILE_HEIGHT), v4(1.0, 1.0, 1.0, 0.1));
 					}
 				}
 			}
+
+			draw_rect(v2(tile_pos_to_world_pos(mouse_tile_x) + half_tile_width, tile_pos_to_world_pos(mouse_tile_y) + half_tile_height),
+						 v2(TILE_WIDTH, TILE_HEIGHT), v4(0.5, 0.5, 0.5, 0.5));
 		}
 
 		// NOTE: This is where we draw the entities, setup happens earlier
