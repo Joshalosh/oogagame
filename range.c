@@ -9,7 +9,10 @@ typedef struct Range2f {
 	Vector2 max;
 } Range2f;
 
-inline Range2f range2f_make(Vector2 min, Vector2 max) { return (Range2f) {min, max}; }
+inline Range2f range2f_make(Vector2 min, Vector2 max) { 
+	Range2f result = {min, max};
+	return result;
+}
 
 Range2f range2f_offset(Range2f range, Vector2 offset) {
 	range.min = v2_add(range.min, offset);

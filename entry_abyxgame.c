@@ -1,8 +1,9 @@
 
 #include "range.c"
 
-#define TILE_WIDTH  16
-#define TILE_HEIGHT 16
+#define TILE_WIDTH   16
+#define TILE_HEIGHT  16
+#define CLICK_RADIUS 32.0
 
 int world_pos_to_tile_pos(float world_pos){
 	int result = roundf(world_pos / (float)TILE_WIDTH);
@@ -40,7 +41,6 @@ bool animate_f32_to_target(float *value, float target, float delta_t, float rate
 void animate_v2_to_target(Vector2 *value, Vector2 target, float delta_t, float rate) {
 	animate_f32_to_target(&(value->x), target.x, delta_t, rate);
 	animate_f32_to_target(&(value->y), target.y, delta_t, rate);
-
 }
 
 typedef enum Sprite_ID {
@@ -142,7 +142,8 @@ Vector2 mouse_screen_to_world() {
 	world_pos = m4_transform(view, world_pos);
 
 	// NOTE: Return as 2D vector
-	return (Vector2){world_pos.x, world_pos.y};
+	Vector2 result = {world_pos.x, world_pos.y};
+	return result;
 }
 
 int entry(int argc, char **argv) {
@@ -174,7 +175,7 @@ int entry(int argc, char **argv) {
 		f32 random_pos_y = get_random_float32_in_range(-random_spray_size, random_spray_size);
 		entity->pos = v2(random_pos_x, random_pos_y);
 		entity->pos = round_v2_to_tile(entity->pos);
-		entity->pos.y -= TILE_WIDTH * 0.5;
+		entity->pos.y -= TILE_HEIGHT * 0.5;
 	}
 
 	for (int i = 0; i < 10; i++) {
@@ -185,7 +186,7 @@ int entry(int argc, char **argv) {
 		f32 random_pos_y = get_random_float32_in_range(-random_spray_size, random_spray_size);
 		entity->pos = v2(random_pos_x, random_pos_y);
 		entity->pos = round_v2_to_tile(entity->pos);
-		entity->pos.y -= TILE_WIDTH * 0.5;
+		entity->pos.y -= TILE_HEIGHT * 0.5;
 	}
 
 	f64 seconds_counter = 0.0;
@@ -220,24 +221,40 @@ int entry(int argc, char **argv) {
 		//
 		// Mouse position in world space test
 		//
-		Vector2 mouse_pos = mouse_screen_to_world();
-		int mouse_tile_x  = world_pos_to_tile_pos(mouse_pos.x);
-		int mouse_tile_y  = world_pos_to_tile_pos(mouse_pos.y);
+		Vector2 mouse_world_pos = mouse_screen_to_world();
+		int mouse_tile_x  = world_pos_to_tile_pos(mouse_world_pos.x);
+		int mouse_tile_y  = world_pos_to_tile_pos(mouse_world_pos.y);
+
+		float negative_half_tile_width   = (float)TILE_WIDTH   * -0.5;
+		float negative_half_tile_height  = (float)TILE_HEIGHT  * -0.5;
 
 		for (int i = 0; i < MAX_ENTITY_COUNT; i++) {
 			Entity *entity = &world->entities[i];
 			if (entity->is_valid) {
 				Sprite *sprite = get_sprite(entity->sprite_id);
+
+				int entity_tile_x = world_pos_to_tile_pos(entity->pos.x);
+				int entity_tile_y = world_pos_to_tile_pos(entity->pos.y);
+
+				f32 mouse_distance_to_entity = v2_length(v2_sub(entity->pos, mouse_world_pos));
+
+				if (fabsf(mouse_distance_to_entity) < CLICK_RADIUS) {
+					draw_rect(v2(tile_pos_to_world_pos(entity_tile_x) + negative_half_tile_width, tile_pos_to_world_pos(entity_tile_y) + negative_half_tile_height),
+								v2(TILE_WIDTH, TILE_HEIGHT), v4(0.5, 0.5, 0.5, 0.5));
+				}
+
+#if 0
 				Range2f bounds = range2f_make_bottom_center(sprite->size);
 				bounds = range2f_offset(bounds, entity->pos);
 
-				Vector4 color = COLOR_GREEN;
+				Vector4 color = COLOR_WHITE;
 				color.a = 0.4;
-				if (range2f_contains(bounds, mouse_pos)) {
-					color.a = 1.0;
+				if (range2f_contains(bounds, mouse_world_pos)) {
+					color.a = 0.65;
 				}
 
 				draw_rect(bounds.min, range2f_size(bounds), color);
+#endif
 			}
 		}
 
@@ -249,21 +266,22 @@ int entry(int argc, char **argv) {
 			int player_tile_y  		= world_pos_to_tile_pos(player_entity->pos.y);
 			int tile_radius_x  		= 40;
 			int tile_radius_y 		= 30;
-			float half_tile_width   = (float)TILE_WIDTH   * -0.5;
-			float half_tile_height  = (float)TILE_HEIGHT  * -0.5;
 
 			for(int x = player_tile_x - tile_radius_x; x < player_tile_x + tile_radius_x; x++) {
 				for (int y = player_tile_y - tile_radius_y; y < player_tile_y + tile_radius_y; y++) {
 					if ((x + (y % 2 == 0)) % 2 == 0) {
 						float x_pos = x * TILE_WIDTH;
 						float y_pos = y * TILE_HEIGHT;
-						draw_rect(v2(x_pos + half_tile_width, y_pos + half_tile_height), v2(TILE_WIDTH, TILE_HEIGHT), v4(1.0, 1.0, 1.0, 0.1));
+						draw_rect(v2(x_pos + negative_half_tile_width, y_pos + negative_half_tile_height), v2(TILE_WIDTH, TILE_HEIGHT), 
+								  v4(1.0, 1.0, 1.0, 0.1));
 					}
 				}
 			}
 
-			draw_rect(v2(tile_pos_to_world_pos(mouse_tile_x) + half_tile_width, tile_pos_to_world_pos(mouse_tile_y) + half_tile_height),
+#if 0
+			draw_rect(v2(tile_pos_to_world_pos(mouse_tile_x) + negative_half_tile_width, tile_pos_to_world_pos(mouse_tile_y) + negative_half_tile_height),
 						 v2(TILE_WIDTH, TILE_HEIGHT), v4(0.5, 0.5, 0.5, 0.5));
+#endif
 		}
 
 		// NOTE: This is where we draw the entities, setup happens earlier
