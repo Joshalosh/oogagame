@@ -90,6 +90,11 @@ typedef struct World {
 } World;
 World *world = 0;
 
+typedef struct World_Frame {
+	Entity *selected_entity;
+} World_Frame;
+World_Frame world_frame;
+
 Entity *create_entity() {
 	Entity *found_entity = 0;
 	for (int i = 0; i < MAX_ENTITY_COUNT; i++) {
@@ -175,7 +180,7 @@ int entry(int argc, char **argv) {
 		f32 random_pos_y = get_random_float32_in_range(-random_spray_size, random_spray_size);
 		entity->pos = v2(random_pos_x, random_pos_y);
 		entity->pos = round_v2_to_tile(entity->pos);
-		entity->pos.y -= TILE_HEIGHT * 0.5;
+		//entity->pos.y -= TILE_HEIGHT * 0.5;
 	}
 
 	for (int i = 0; i < 10; i++) {
@@ -186,7 +191,7 @@ int entry(int argc, char **argv) {
 		f32 random_pos_y = get_random_float32_in_range(-random_spray_size, random_spray_size);
 		entity->pos = v2(random_pos_x, random_pos_y);
 		entity->pos = round_v2_to_tile(entity->pos);
-		entity->pos.y -= TILE_HEIGHT * 0.5;
+		//entity->pos.y -= TILE_HEIGHT * 0.5;
 	}
 
 	f64 seconds_counter = 0.0;
@@ -198,6 +203,7 @@ int entry(int argc, char **argv) {
 	f64 last_time = os_get_elapsed_seconds();
 	while (!window.should_close) {
 		reset_temporary_storage();
+		world_frame = (World_Frame){0};
 
 		f64 now = os_get_elapsed_seconds();
 		f64 delta_t = now - last_time;
@@ -225,36 +231,48 @@ int entry(int argc, char **argv) {
 		int mouse_tile_x  = world_pos_to_tile_pos(mouse_world_pos.x);
 		int mouse_tile_y  = world_pos_to_tile_pos(mouse_world_pos.y);
 
-		float negative_half_tile_width   = (float)TILE_WIDTH   * -0.5;
-		float negative_half_tile_height  = (float)TILE_HEIGHT  * -0.5;
+		float half_tile_width   = (float)TILE_WIDTH   * 0.5;
+		float half_tile_height  = (float)TILE_HEIGHT  * 0.5;
 
-		for (int i = 0; i < MAX_ENTITY_COUNT; i++) {
-			Entity *entity = &world->entities[i];
-			if (entity->is_valid) {
-				Sprite *sprite = get_sprite(entity->sprite_id);
+		{
+			f32 current_selection_distance = INFINITY;
+			for (int i = 0; i < MAX_ENTITY_COUNT; i++) {
+				Entity *entity = &world->entities[i];
+				if (entity->is_valid) {
+					Sprite *sprite = get_sprite(entity->sprite_id);
 
-				int entity_tile_x = world_pos_to_tile_pos(entity->pos.x);
-				int entity_tile_y = world_pos_to_tile_pos(entity->pos.y);
+					int entity_tile_x = world_pos_to_tile_pos(entity->pos.x);
+					int entity_tile_y = world_pos_to_tile_pos(entity->pos.y);
 
-				f32 mouse_distance_to_entity = v2_length(v2_sub(entity->pos, mouse_world_pos));
+					f32 mouse_distance_to_entity = v2_length(v2_sub(entity->pos, mouse_world_pos));
 
-				if (fabsf(mouse_distance_to_entity) < CLICK_RADIUS) {
-					draw_rect(v2(tile_pos_to_world_pos(entity_tile_x) + negative_half_tile_width, tile_pos_to_world_pos(entity_tile_y) + negative_half_tile_height),
-								v2(TILE_WIDTH, TILE_HEIGHT), v4(0.5, 0.5, 0.5, 0.5));
+					if (mouse_distance_to_entity < CLICK_RADIUS) {
+						if (!world_frame.selected_entity || (mouse_distance_to_entity < current_selection_distance)) {
+							world_frame.selected_entity = entity;
+							current_selection_distance = mouse_distance_to_entity;
+						}
+					}
+
+					if (fabsf(mouse_distance_to_entity) < CLICK_RADIUS) {
+						draw_rect(v2(tile_pos_to_world_pos(entity_tile_x) - half_tile_width, tile_pos_to_world_pos(entity_tile_y) - half_tile_height),
+									v2(TILE_WIDTH, TILE_HEIGHT), v4(0.5, 0.5, 0.5, 0.5));
+					}
+
+					//log("%f, %f", mouse_world_pos.x, mouse_world_pos.y);
+
+	#if 0
+					Range2f bounds = range2f_make_bottom_center(sprite->size);
+					bounds = range2f_offset(bounds, entity->pos);
+
+					Vector4 color = COLOR_WHITE;
+					color.a = 0.4;
+					if (range2f_contains(bounds, mouse_world_pos)) {
+						color.a = 0.65;
+					}
+
+					draw_rect(bounds.min, range2f_size(bounds), color);
+	#endif
 				}
-
-#if 0
-				Range2f bounds = range2f_make_bottom_center(sprite->size);
-				bounds = range2f_offset(bounds, entity->pos);
-
-				Vector4 color = COLOR_WHITE;
-				color.a = 0.4;
-				if (range2f_contains(bounds, mouse_world_pos)) {
-					color.a = 0.65;
-				}
-
-				draw_rect(bounds.min, range2f_size(bounds), color);
-#endif
 			}
 		}
 
@@ -272,7 +290,7 @@ int entry(int argc, char **argv) {
 					if ((x + (y % 2 == 0)) % 2 == 0) {
 						float x_pos = x * TILE_WIDTH;
 						float y_pos = y * TILE_HEIGHT;
-						draw_rect(v2(x_pos + negative_half_tile_width, y_pos + negative_half_tile_height), v2(TILE_WIDTH, TILE_HEIGHT), 
+						draw_rect(v2(x_pos - half_tile_width, y_pos - half_tile_height), v2(TILE_WIDTH, TILE_HEIGHT), 
 								  v4(1.0, 1.0, 1.0, 0.1));
 					}
 				}
@@ -294,9 +312,15 @@ int entry(int argc, char **argv) {
 					default: {
 						Sprite *sprite 		= get_sprite(entity->sprite_id);
 						Matrix4 rect_xform  = m4_scalar(1.0);
+						rect_xform 			= m4_translate(rect_xform, v3(0, -half_tile_height, 0));
 						rect_xform          = m4_translate(rect_xform, v3(entity->pos.x, entity->pos.y, 0));
 						rect_xform          = m4_translate(rect_xform, v3(sprite->size.x * -0.5, 0, 0));
-						draw_image_xform(sprite->image, rect_xform, sprite->size, COLOR_WHITE);
+
+						Vector4 color = COLOR_WHITE;
+						if (world_frame.selected_entity == entity) {
+							color = COLOR_GREEN;
+						}
+						draw_image_xform(sprite->image, rect_xform, sprite->size, color);
 					} break;
 				}
 			}
