@@ -75,6 +75,9 @@ typedef enum Entity_Type {
 	EntityType_tree,
 	EntityType_rock,
 	EntityType_player,
+	EntityType_item_rock,
+	EntityType_item_wood,
+	EntityType_count,
 } Entity_Type;
 
 typedef struct Entity {
@@ -168,10 +171,10 @@ int entry(int argc, char **argv) {
 
 	world = alloc(get_heap_allocator(), sizeof(World));
 
-	sprites[SpriteID_player] = (Sprite){ .image=load_image_from_disk(STR("player.png"), get_heap_allocator()), .size=v2( 8,  8) };
-	sprites[SpriteID_tree0]  = (Sprite){ .image=load_image_from_disk(STR("tree00.png"), get_heap_allocator()), .size=v2(16, 16) };
-	sprites[SpriteID_tree1]  = (Sprite){ .image=load_image_from_disk(STR("tree01.png"), get_heap_allocator()), .size=v2(16, 16) };
-	sprites[SpriteID_rock0]  = (Sprite){ .image=load_image_from_disk(STR("rock00.png"), get_heap_allocator()), .size=v2(13,  9) };
+	sprites[SpriteID_player] = (Sprite){ .image=load_image_from_disk(STR("res/sprites/player.png"), get_heap_allocator()), .size=v2( 8,  8) };
+	sprites[SpriteID_tree0]  = (Sprite){ .image=load_image_from_disk(STR("res/sprites/tree00.png"), get_heap_allocator()), .size=v2(16, 16) };
+	sprites[SpriteID_tree1]  = (Sprite){ .image=load_image_from_disk(STR("res/sprites/tree01.png"), get_heap_allocator()), .size=v2(16, 16) };
+	sprites[SpriteID_rock0]  = (Sprite){ .image=load_image_from_disk(STR("res/sprites/rock00.png"), get_heap_allocator()), .size=v2(13,  9) };
 
 	Entity *player_entity = create_entity();
 	player_init(player_entity);
