@@ -4,6 +4,8 @@
 #define TILE_WIDTH   16
 #define TILE_HEIGHT  16
 #define CLICK_RADIUS 32.0
+#define ROCK_HP 	 3
+#define TREE_HP 	 3
 
 int world_pos_to_tile_pos(float world_pos){
 	int result = roundf(world_pos / (float)TILE_WIDTH);
@@ -79,9 +81,9 @@ typedef struct Entity {
 	bool is_valid;
 	Entity_Type type;
 	Vector2 pos;
-
 	//bool render_sprite;
 	Sprite_ID sprite_id;
+	int health;
 } Entity;
 
 #define MAX_ENTITY_COUNT 1024
@@ -116,11 +118,13 @@ void destroy_entity(Entity *entity) {
 void rock_init(Entity *entity) {
 	entity->type 	  = EntityType_rock;
 	entity->sprite_id = SpriteID_rock0;
+	entity->health    = ROCK_HP;
 }
 
 void tree_init(Entity *entity) {
 	entity->type = EntityType_tree;
 	entity->sprite_id = SpriteID_tree0;
+	entity->health    = TREE_HP;
 }
 
 void player_init(Entity *entity) {
@@ -252,26 +256,7 @@ int entry(int argc, char **argv) {
 							current_selection_distance = mouse_distance_to_entity;
 						}
 					}
-
-					if (fabsf(mouse_distance_to_entity) < CLICK_RADIUS) {
-						draw_rect(v2(tile_pos_to_world_pos(entity_tile_x) - half_tile_width, tile_pos_to_world_pos(entity_tile_y) - half_tile_height),
-									v2(TILE_WIDTH, TILE_HEIGHT), v4(0.5, 0.5, 0.5, 0.5));
-					}
-
 					//log("%f, %f", mouse_world_pos.x, mouse_world_pos.y);
-
-	#if 0
-					Range2f bounds = range2f_make_bottom_center(sprite->size);
-					bounds = range2f_offset(bounds, entity->pos);
-
-					Vector4 color = COLOR_WHITE;
-					color.a = 0.4;
-					if (range2f_contains(bounds, mouse_world_pos)) {
-						color.a = 0.65;
-					}
-
-					draw_rect(bounds.min, range2f_size(bounds), color);
-	#endif
 				}
 			}
 		}
@@ -300,6 +285,23 @@ int entry(int argc, char **argv) {
 			draw_rect(v2(tile_pos_to_world_pos(mouse_tile_x) + negative_half_tile_width, tile_pos_to_world_pos(mouse_tile_y) + negative_half_tile_height),
 						 v2(TILE_WIDTH, TILE_HEIGHT), v4(0.5, 0.5, 0.5, 0.5));
 #endif
+		}
+
+		//
+		// Click to consume resources
+		//
+		{
+			Entity *selected_entity = world_frame.selected_entity;
+			if (is_key_just_pressed(MOUSE_BUTTON_LEFT)) {
+				consume_key_just_pressed(MOUSE_BUTTON_LEFT);
+
+				if (selected_entity) {
+					selected_entity->health -= 1;
+					if (selected_entity->health <= 0) {
+						destroy_entity(selected_entity);
+					}
+				}
+			}
 		}
 
 		// NOTE: This is where we draw the entities, setup happens earlier
