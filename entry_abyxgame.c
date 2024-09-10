@@ -51,14 +51,12 @@ typedef enum Sprite_ID {
 	SpriteID_tree0,
 	SpriteID_tree1,
 	SpriteID_rock0,
+	SpriteID_item_rock,
+	SpriteID_item_wood,
 	SpriteID_count,
 } Sprite_ID;
 typedef struct Sprite {
 	Gfx_Image *image;
-	// TODO: Not sure if I like the fact that size is attached
-	// to the sprite and not to the entity. Perhaps I should
-	// move size onto the entity later if it feels more right.
-	Vector2    size; 
 } Sprite;
 Sprite sprites[SpriteID_count];
 
@@ -67,6 +65,11 @@ Sprite *get_sprite(Sprite_ID id) {
 	if (id >= 0 && id < SpriteID_count) {
 		result = &sprites[id];
 	}
+	return result;
+}
+
+Vector2 get_sprite_size(Sprite *sprite) {
+	Vector2 result = v2(sprite->image->width, sprite->image->height);
 	return result;
 }
 
@@ -87,6 +90,7 @@ typedef struct Entity {
 	//bool render_sprite;
 	Sprite_ID sprite_id;
 	int health;
+	bool destructable;
 } Entity;
 
 #define MAX_ENTITY_COUNT 1024
@@ -118,23 +122,39 @@ void destroy_entity(Entity *entity) {
 	memset(entity, 0, sizeof(Entity));
 }
 
+void player_init(Entity *entity) {
+	entity->type 	  	 = EntityType_player;
+	entity->pos 	     = v2(0,0);
+	entity->sprite_id 	 = SpriteID_player;
+	entity->destructable = false;
+}
+
 void rock_init(Entity *entity) {
-	entity->type 	  = EntityType_rock;
-	entity->sprite_id = SpriteID_rock0;
-	entity->health    = ROCK_HP;
+	entity->type 	  	 = EntityType_rock;
+	entity->sprite_id    = SpriteID_rock0;
+	entity->health    	 = ROCK_HP;
+	entity->destructable = true;
 }
 
 void tree_init(Entity *entity) {
-	entity->type = EntityType_tree;
-	entity->sprite_id = SpriteID_tree0;
-	entity->health    = TREE_HP;
+	entity->type 	  	 = EntityType_tree;
+	entity->sprite_id 	 = SpriteID_tree0;
+	entity->health    	 = TREE_HP;
+	entity->destructable = true;
 }
 
-void player_init(Entity *entity) {
-	entity->type = EntityType_player;
-	entity->pos = v2(0,0);
-	entity->sprite_id = SpriteID_player;
+void item_wood_init(Entity *entity) {
+	entity->type 	   	 = EntityType_item_wood;
+	entity->sprite_id 	 = SpriteID_item_wood;
+	entity->destructable = false;
 }
+
+void item_rock_init(Entity *entity) {
+	entity->type 	  	 = EntityType_item_rock;
+	entity->sprite_id 	 = SpriteID_item_rock;
+	entity->destructable = false;
+}
+
 
 Vector2 mouse_screen_to_world() {
 	float mouse_x 		= input_frame.mouse_x;
@@ -171,10 +191,12 @@ int entry(int argc, char **argv) {
 
 	world = alloc(get_heap_allocator(), sizeof(World));
 
-	sprites[SpriteID_player] = (Sprite){ .image=load_image_from_disk(STR("res/sprites/player.png"), get_heap_allocator()), .size=v2( 8,  8) };
-	sprites[SpriteID_tree0]  = (Sprite){ .image=load_image_from_disk(STR("res/sprites/tree00.png"), get_heap_allocator()), .size=v2(16, 16) };
-	sprites[SpriteID_tree1]  = (Sprite){ .image=load_image_from_disk(STR("res/sprites/tree01.png"), get_heap_allocator()), .size=v2(16, 16) };
-	sprites[SpriteID_rock0]  = (Sprite){ .image=load_image_from_disk(STR("res/sprites/rock00.png"), get_heap_allocator()), .size=v2(13,  9) };
+	sprites[SpriteID_player] 	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/player.png"),    get_heap_allocator()) };
+	sprites[SpriteID_tree0]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/tree00.png"),    get_heap_allocator()) };
+	sprites[SpriteID_tree1]   	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/tree01.png"),    get_heap_allocator()) };
+	sprites[SpriteID_rock0]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/rock00.png"),    get_heap_allocator()) };
+	sprites[SpriteID_item_wood]  = (Sprite){ .image=load_image_from_disk(STR("res/sprites/item_wood00.png"), get_heap_allocator()) };
+	sprites[SpriteID_item_rock]  = (Sprite){ .image=load_image_from_disk(STR("res/sprites/item_rock00.png"), get_heap_allocator()) };
 
 	Entity *player_entity = create_entity();
 	player_init(player_entity);
@@ -245,7 +267,7 @@ int entry(int argc, char **argv) {
 			f32 current_selection_distance = INFINITY;
 			for (int i = 0; i < MAX_ENTITY_COUNT; i++) {
 				Entity *entity = &world->entities[i];
-				if (entity->is_valid) {
+				if (entity->is_valid && entity->destructable) {
 					Sprite *sprite = get_sprite(entity->sprite_id);
 
 					int entity_tile_x = world_pos_to_tile_pos(entity->pos.x);
@@ -301,6 +323,24 @@ int entry(int argc, char **argv) {
 				if (selected_entity) {
 					selected_entity->health -= 1;
 					if (selected_entity->health <= 0) {
+
+						switch (selected_entity->type) {
+							case EntityType_tree: {
+								Entity *resource_item = create_entity();
+								item_wood_init(resource_item);
+								resource_item->pos = selected_entity->pos;
+							} break;
+
+							case EntityType_rock: {
+								Entity *resource_item = create_entity();
+								item_rock_init(resource_item);
+								resource_item->pos = selected_entity->pos;
+							} break;
+
+							default: {
+							} break;
+
+						}
 						destroy_entity(selected_entity);
 					}
 				}
@@ -319,13 +359,13 @@ int entry(int argc, char **argv) {
 						Matrix4 rect_xform  = m4_scalar(1.0);
 						rect_xform 			= m4_translate(rect_xform, v3(0, -half_tile_height, 0));
 						rect_xform          = m4_translate(rect_xform, v3(entity->pos.x, entity->pos.y, 0));
-						rect_xform          = m4_translate(rect_xform, v3(sprite->size.x * -0.5, 0, 0));
+						rect_xform          = m4_translate(rect_xform, v3(sprite->image->width * -0.5, 0, 0));
 
 						Vector4 color = COLOR_WHITE;
 						if (world_frame.selected_entity == entity) {
 							color = COLOR_GREEN;
 						}
-						draw_image_xform(sprite->image, rect_xform, sprite->size, color);
+						draw_image_xform(sprite->image, rect_xform, get_sprite_size(sprite), color);
 					} break;
 				}
 			}
