@@ -7,20 +7,13 @@
 #define ROCK_HP 	 3
 #define TREE_HP 	 3
 
-int world_pos_to_tile_pos(float world_pos){
-	int result = roundf(world_pos / (float)TILE_WIDTH);
-	return result;
-}
+//
+// Generic Utilities
+//
 
-float tile_pos_to_world_pos(int tile_pos) {
-	float result = ((float)tile_pos * (float)TILE_WIDTH);
+float sin_bob(float time, float rate) {
+	float result = (sin(time * rate) + 1) / 2.0;
 	return result;
-}
-
-Vector2 round_v2_to_tile(Vector2 world_pos){
-	world_pos.x = tile_pos_to_world_pos(world_pos_to_tile_pos(world_pos.x));
-	world_pos.y = tile_pos_to_world_pos(world_pos_to_tile_pos(world_pos.y));
-	return world_pos;
 }
 
 bool almost_equals(float a, float b, float epsilon) {
@@ -43,6 +36,26 @@ bool animate_f32_to_target(float *value, float target, float delta_t, float rate
 void animate_v2_to_target(Vector2 *value, Vector2 target, float delta_t, float rate) {
 	animate_f32_to_target(&(value->x), target.x, delta_t, rate);
 	animate_f32_to_target(&(value->y), target.y, delta_t, rate);
+}
+
+//
+//
+//
+
+int world_pos_to_tile_pos(float world_pos){
+	int result = roundf(world_pos / (float)TILE_WIDTH);
+	return result;
+}
+
+float tile_pos_to_world_pos(int tile_pos) {
+	float result = ((float)tile_pos * (float)TILE_WIDTH);
+	return result;
+}
+
+Vector2 round_v2_to_tile(Vector2 world_pos){
+	world_pos.x = tile_pos_to_world_pos(world_pos_to_tile_pos(world_pos.x));
+	world_pos.y = tile_pos_to_world_pos(world_pos_to_tile_pos(world_pos.y));
+	return world_pos;
 }
 
 typedef enum Sprite_ID {
@@ -91,6 +104,7 @@ typedef struct Entity {
 	Sprite_ID sprite_id;
 	int health;
 	bool destructable;
+	bool is_item;
 } Entity;
 
 #define MAX_ENTITY_COUNT 1024
@@ -127,6 +141,7 @@ void player_init(Entity *entity) {
 	entity->pos 	     = v2(0,0);
 	entity->sprite_id 	 = SpriteID_player;
 	entity->destructable = false;
+	entity->is_item		 = false;
 }
 
 void rock_init(Entity *entity) {
@@ -134,6 +149,7 @@ void rock_init(Entity *entity) {
 	entity->sprite_id    = SpriteID_rock0;
 	entity->health    	 = ROCK_HP;
 	entity->destructable = true;
+	entity->is_item		 = false;
 }
 
 void tree_init(Entity *entity) {
@@ -141,18 +157,21 @@ void tree_init(Entity *entity) {
 	entity->sprite_id 	 = SpriteID_tree0;
 	entity->health    	 = TREE_HP;
 	entity->destructable = true;
+	entity->is_item		 = false;
 }
 
 void item_wood_init(Entity *entity) {
 	entity->type 	   	 = EntityType_item_wood;
 	entity->sprite_id 	 = SpriteID_item_wood;
 	entity->destructable = false;
+	entity->is_item		 = true;
 }
 
 void item_rock_init(Entity *entity) {
 	entity->type 	  	 = EntityType_item_rock;
 	entity->sprite_id 	 = SpriteID_item_rock;
 	entity->destructable = false;
+	entity->is_item		 = true;
 }
 
 
@@ -226,7 +245,7 @@ int entry(int argc, char **argv) {
 	f64 seconds_counter = 0.0;
 	s32 frame_count 	= 0;
 
-	float zoom = 5.3; 
+	float zoom = 5.3;//2.65; 
 	Vector2 camera_pos = v2(0, 0);
 
 	f64 last_time = os_get_elapsed_seconds();
@@ -357,6 +376,9 @@ int entry(int argc, char **argv) {
 					default: {
 						Sprite *sprite 		= get_sprite(entity->sprite_id);
 						Matrix4 rect_xform  = m4_scalar(1.0);
+						if (entity->is_item) {
+							rect_xform = m4_translate(rect_xform, v3(0, 2.0*sin_bob(os_get_elapsed_seconds(), 5.0f), 0));
+						} 
 						rect_xform 			= m4_translate(rect_xform, v3(0, -half_tile_height, 0));
 						rect_xform          = m4_translate(rect_xform, v3(entity->pos.x, entity->pos.y, 0));
 						rect_xform          = m4_translate(rect_xform, v3(sprite->image->width * -0.5, 0, 0));
