@@ -1,16 +1,19 @@
 
 #include "range.c"
 
-#define TILE_WIDTH   16
-#define TILE_HEIGHT  16
-#define CLICK_RADIUS 32.0
-#define ROCK_HP 	 3
-#define TREE_HP 	 3
+#define TILE_WIDTH    16
+#define TILE_HEIGHT   16
+#define CLICK_RADIUS  32.0
+#define PICKUP_RADIUS 40.0
+#define ROCK_HP 	  3
+#define TREE_HP 	  3
 
 //
 // Generic Utilities
 //
 
+// NOTE: this sin_bob function goes between 0 and 1, when normally
+// without intervention it would go between -1 and 1
 float sin_bob(float time, float rate) {
 	float result = (sin(time * rate) + 1) / 2.0;
 	return result;
@@ -107,9 +110,14 @@ typedef struct Entity {
 	bool is_item;
 } Entity;
 
+typedef struct Item_Data {
+	int item_count;
+} Item_Data;
+
 #define MAX_ENTITY_COUNT 1024
 typedef struct World {
 	Entity entities[MAX_ENTITY_COUNT];
+	Item_Data inventory[EntityType_count];
 } World;
 World *world = 0;
 
@@ -132,7 +140,7 @@ Entity *create_entity() {
 	return found_entity;
 }
 
-void destroy_entity(Entity *entity) {
+void entity_destroy(Entity *entity) {
 	memset(entity, 0, sizeof(Entity));
 }
 
@@ -216,6 +224,11 @@ int entry(int argc, char **argv) {
 	sprites[SpriteID_rock0]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/rock00.png"),    get_heap_allocator()) };
 	sprites[SpriteID_item_wood]  = (Sprite){ .image=load_image_from_disk(STR("res/sprites/item_wood00.png"), get_heap_allocator()) };
 	sprites[SpriteID_item_rock]  = (Sprite){ .image=load_image_from_disk(STR("res/sprites/item_rock00.png"), get_heap_allocator()) };
+
+	// Item testing
+	{
+		//world->inventory[EntityType_item_wood].item_count = 5;
+	}
 
 	Entity *player_entity = create_entity();
 	player_init(player_entity);
@@ -332,6 +345,23 @@ int entry(int argc, char **argv) {
 		}
 
 		//
+		// Update Entities
+		//
+
+		for (int i = 0; i < MAX_ENTITY_COUNT; i++) {
+			Entity *entity = &world->entities[i];
+			if (entity->is_valid) {
+				if (entity->is_item) {
+					f32 distance_to_player = v2_length(v2_sub(entity->pos, player_entity->pos));
+					if (fabsf(distance_to_player) < PICKUP_RADIUS) {
+						world->inventory[entity->type].item_count += 1;
+						entity_destroy(entity);
+					}
+				}
+			}
+		}
+
+		//
 		// Click to consume resources
 		//
 		{
@@ -360,7 +390,7 @@ int entry(int argc, char **argv) {
 							} break;
 
 						}
-						destroy_entity(selected_entity);
+						entity_destroy(selected_entity);
 					}
 				}
 			}
@@ -377,7 +407,7 @@ int entry(int argc, char **argv) {
 						Sprite *sprite 		= get_sprite(entity->sprite_id);
 						Matrix4 rect_xform  = m4_scalar(1.0);
 						if (entity->is_item) {
-							rect_xform = m4_translate(rect_xform, v3(0, 2.0*sin_bob(os_get_elapsed_seconds(), 5.0f), 0));
+							rect_xform = m4_translate(rect_xform, v3(0, 2.0*sin_bob(now, 5.0f), 0));
 						} 
 						rect_xform 			= m4_translate(rect_xform, v3(0, -half_tile_height, 0));
 						rect_xform          = m4_translate(rect_xform, v3(entity->pos.x, entity->pos.y, 0));
@@ -415,6 +445,12 @@ int entry(int argc, char **argv) {
 		player_entity->pos = v2_add(player_entity->pos, v2_mulf(input_axis, 100.0f * delta_t));
 		
 		//draw_rect(v2(sin(now)*window.width*0.4-60, -60), v2(120, 120), COLOR_RED);
+	
+		Matrix4 rect_xform = m4_scalar(1.0);
+		rect_xform         = m4_translate(rect_xform, v3(world_pos_to_tile_pos(window.width), world_pos_to_tile_pos(-window.height), 0));
+		rect_xform         = m4_rotate_z(rect_xform, (f32)now);
+		rect_xform         = m4_translate(rect_xform, v3(25*-0.5, 25*-0.5, 0));
+		draw_rect_xform(rect_xform, v2(25, 25), COLOR_GREEN);
 		
 		gfx_update();
 		seconds_counter += delta_t;
