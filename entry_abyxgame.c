@@ -67,8 +67,8 @@ typedef enum Sprite_ID {
 	SpriteID_tree0,
 	SpriteID_tree1,
 	SpriteID_rock0,
-	SpriteID_item_rock,
-	SpriteID_item_wood,
+	SpriteID_stone,
+	SpriteID_wood,
 	SpriteID_count,
 } Sprite_ID;
 typedef struct Sprite {
@@ -76,7 +76,7 @@ typedef struct Sprite {
 } Sprite;
 Sprite sprites[SpriteID_count];
 
-Sprite *get_sprite(Sprite_ID id) {
+Sprite *get_sprite_from_sprite_id(Sprite_ID id) {
 	Sprite *result = &sprites[0];
 	if (id >= 0 && id < SpriteID_count) {
 		result = &sprites[id];
@@ -94,10 +94,18 @@ typedef enum Entity_Type {
 	EntityType_tree,
 	EntityType_rock,
 	EntityType_player,
-	EntityType_item_rock,
-	EntityType_item_wood,
+	EntityType_stone,
+	EntityType_wood,
 	EntityType_count,
 } Entity_Type;
+
+Sprite_ID get_sprite_id_from_entity_type(Entity_Type type) {
+	switch(type) {
+		case EntityType_stone: return SpriteID_stone; break;
+		case EntityType_wood: return SpriteID_wood; break;
+		default: return 0;
+	}
+}
 
 typedef struct Entity {
 	bool is_valid;
@@ -169,15 +177,15 @@ void tree_init(Entity *entity) {
 }
 
 void item_wood_init(Entity *entity) {
-	entity->type 	   	 = EntityType_item_wood;
-	entity->sprite_id 	 = SpriteID_item_wood;
+	entity->type 	   	 = EntityType_wood;
+	entity->sprite_id 	 = SpriteID_wood;
 	entity->destructable = false;
 	entity->is_item		 = true;
 }
 
 void item_rock_init(Entity *entity) {
-	entity->type 	  	 = EntityType_item_rock;
-	entity->sprite_id 	 = SpriteID_item_rock;
+	entity->type 	  	 = EntityType_stone;
+	entity->sprite_id 	 = SpriteID_stone;
 	entity->destructable = false;
 	entity->is_item		 = true;
 }
@@ -222,8 +230,8 @@ int entry(int argc, char **argv) {
 	sprites[SpriteID_tree0]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/tree00.png"),    get_heap_allocator()) };
 	sprites[SpriteID_tree1]   	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/tree01.png"),    get_heap_allocator()) };
 	sprites[SpriteID_rock0]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/rock00.png"),    get_heap_allocator()) };
-	sprites[SpriteID_item_wood]  = (Sprite){ .image=load_image_from_disk(STR("res/sprites/item_wood00.png"), get_heap_allocator()) };
-	sprites[SpriteID_item_rock]  = (Sprite){ .image=load_image_from_disk(STR("res/sprites/item_rock00.png"), get_heap_allocator()) };
+	sprites[SpriteID_wood]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/item_wood00.png"), get_heap_allocator()) };
+	sprites[SpriteID_stone]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/item_rock00.png"), get_heap_allocator()) };
 
 	// Item testing
 	{
@@ -300,7 +308,7 @@ int entry(int argc, char **argv) {
 			for (int i = 0; i < MAX_ENTITY_COUNT; i++) {
 				Entity *entity = &world->entities[i];
 				if (entity->is_valid && entity->destructable) {
-					Sprite *sprite = get_sprite(entity->sprite_id);
+					Sprite *sprite = get_sprite_from_sprite_id(entity->sprite_id);
 
 					int entity_tile_x = world_pos_to_tile_pos(entity->pos.x);
 					int entity_tile_y = world_pos_to_tile_pos(entity->pos.y);
@@ -404,7 +412,7 @@ int entry(int argc, char **argv) {
 			if (entity->is_valid) {
 				switch (entity->type) {
 					default: {
-						Sprite *sprite 		= get_sprite(entity->sprite_id);
+						Sprite *sprite 		= get_sprite_from_sprite_id(entity->sprite_id);
 						Matrix4 rect_xform  = m4_scalar(1.0);
 						if (entity->is_item) {
 							rect_xform = m4_translate(rect_xform, v3(0, 2.0*sin_bob(now, 5.0f), 0));
@@ -419,6 +427,32 @@ int entry(int argc, char **argv) {
 						}
 						draw_image_xform(sprite->image, rect_xform, get_sprite_size(sprite), color);
 					} break;
+				}
+			}
+		}
+		
+		//
+		// Draw UI
+		//
+		{
+			draw_frame.camera_xform = m4_scalar(1.0);
+			draw_frame.projection 	= m4_make_orthographic_projection(0.0, 240, 0.0, 135, -1, 10);
+
+			float ui_pos_x = 30.0f;
+			float ui_pos_y = 30.0f;
+
+			int item_counter = 0;
+			for (int i = 0; i < EntityType_count; i++) {
+				Item_Data *item = &world->inventory[i];
+				if (item->item_count > 0) {
+					item_counter += 1;
+					Matrix4 xform = m4_scalar(1.0);
+					xform		  = m4_translate(xform, v3(ui_pos_x, ui_pos_y, 0));
+					draw_rect_xform(xform, v2(16, 16), COLOR_BLACK);
+
+					Sprite *sprite = get_sprite_from_sprite_id(get_sprite_id_from_entity_type(i));
+
+					draw_image_xform(sprite->image, xform, get_sprite_size(sprite), COLOR_WHITE);
 				}
 			}
 		}
