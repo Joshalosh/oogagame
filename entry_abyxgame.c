@@ -115,17 +115,17 @@ typedef struct Entity {
 	Sprite_ID sprite_id;
 	int health;
 	bool destructable;
-	bool is_item;
+	bool is_resource;
 } Entity;
 
-typedef struct Item_Data {
-	int item_count;
-} Item_Data;
+typedef struct Resource_Data {
+	int count;
+} Resource_Data;
 
 #define MAX_ENTITY_COUNT 1024
 typedef struct World {
 	Entity entities[MAX_ENTITY_COUNT];
-	Item_Data inventory[EntityType_count];
+	Resource_Data inventory[EntityType_count];
 } World;
 World *world = 0;
 
@@ -157,7 +157,7 @@ void player_init(Entity *entity) {
 	entity->pos 	     = v2(0,0);
 	entity->sprite_id 	 = SpriteID_player;
 	entity->destructable = false;
-	entity->is_item		 = false;
+	entity->is_resource	 = false;
 }
 
 void rock_init(Entity *entity) {
@@ -165,7 +165,7 @@ void rock_init(Entity *entity) {
 	entity->sprite_id    = SpriteID_rock0;
 	entity->health    	 = ROCK_HP;
 	entity->destructable = true;
-	entity->is_item		 = false;
+	entity->is_resource  =false;
 }
 
 void tree_init(Entity *entity) {
@@ -173,21 +173,21 @@ void tree_init(Entity *entity) {
 	entity->sprite_id 	 = SpriteID_tree0;
 	entity->health    	 = TREE_HP;
 	entity->destructable = true;
-	entity->is_item		 = false;
+	entity->is_resource  = false;
 }
 
-void item_wood_init(Entity *entity) {
+void wood_init(Entity *entity) {
 	entity->type 	   	 = EntityType_wood;
 	entity->sprite_id 	 = SpriteID_wood;
 	entity->destructable = false;
-	entity->is_item		 = true;
+	entity->is_resource  = true;
 }
 
-void item_rock_init(Entity *entity) {
+void stone_init(Entity *entity) {
 	entity->type 	  	 = EntityType_stone;
 	entity->sprite_id 	 = SpriteID_stone;
 	entity->destructable = false;
-	entity->is_item		 = true;
+	entity->is_resource  = true;
 }
 
 
@@ -226,16 +226,18 @@ int entry(int argc, char **argv) {
 
 	world = alloc(get_heap_allocator(), sizeof(World));
 
-	sprites[SpriteID_player] 	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/player.png"),    get_heap_allocator()) };
-	sprites[SpriteID_tree0]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/tree00.png"),    get_heap_allocator()) };
-	sprites[SpriteID_tree1]   	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/tree01.png"),    get_heap_allocator()) };
-	sprites[SpriteID_rock0]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/rock00.png"),    get_heap_allocator()) };
-	sprites[SpriteID_wood]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/item_wood00.png"), get_heap_allocator()) };
-	sprites[SpriteID_stone]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/item_rock00.png"), get_heap_allocator()) };
+	sprites[0]               	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/missing_texture.png"), get_heap_allocator()) };
+	sprites[SpriteID_player] 	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/player.png"),    	 	 get_heap_allocator()) };
+	sprites[SpriteID_tree0]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/tree00.png"),       	 get_heap_allocator()) };
+	sprites[SpriteID_tree1]   	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/tree01.png"),          get_heap_allocator()) };
+	sprites[SpriteID_rock0]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/rock00.png"),          get_heap_allocator()) };
+	sprites[SpriteID_wood]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/item_wood00.png"),     get_heap_allocator()) };
+	sprites[SpriteID_stone]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/item_rock00.png"),     get_heap_allocator()) };
 
-	// Item testing
+	// Resource testing
 	{
-		//world->inventory[EntityType_item_wood].item_count = 5;
+		world->inventory[EntityType_wood].count  = 5;
+		world->inventory[EntityType_stone].count = 5;
 	}
 
 	Entity *player_entity = create_entity();
@@ -359,10 +361,10 @@ int entry(int argc, char **argv) {
 		for (int i = 0; i < MAX_ENTITY_COUNT; i++) {
 			Entity *entity = &world->entities[i];
 			if (entity->is_valid) {
-				if (entity->is_item) {
+				if (entity->is_resource) {
 					f32 distance_to_player = v2_length(v2_sub(entity->pos, player_entity->pos));
 					if (fabsf(distance_to_player) < PICKUP_RADIUS) {
-						world->inventory[entity->type].item_count += 1;
+						world->inventory[entity->type].count += 1;
 						entity_destroy(entity);
 					}
 				}
@@ -383,15 +385,15 @@ int entry(int argc, char **argv) {
 
 						switch (selected_entity->type) {
 							case EntityType_tree: {
-								Entity *resource_item = create_entity();
-								item_wood_init(resource_item);
-								resource_item->pos = selected_entity->pos;
+								Entity *resource = create_entity();
+								wood_init(resource);
+								resource->pos = selected_entity->pos;
 							} break;
 
 							case EntityType_rock: {
-								Entity *resource_item = create_entity();
-								item_rock_init(resource_item);
-								resource_item->pos = selected_entity->pos;
+								Entity *resource = create_entity();
+								stone_init(resource);
+								resource->pos = selected_entity->pos;
 							} break;
 
 							default: {
@@ -414,7 +416,7 @@ int entry(int argc, char **argv) {
 					default: {
 						Sprite *sprite 		= get_sprite_from_sprite_id(entity->sprite_id);
 						Matrix4 rect_xform  = m4_scalar(1.0);
-						if (entity->is_item) {
+						if (entity->is_resource) {
 							rect_xform = m4_translate(rect_xform, v3(0, 2.0*sin_bob(now, 5.0f), 0));
 						} 
 						rect_xform 			= m4_translate(rect_xform, v3(0, -half_tile_height, 0));
@@ -435,24 +437,45 @@ int entry(int argc, char **argv) {
 		// Draw UI
 		//
 		{
+			float width  = 240.0;
+			float height = 135.0;
+
 			draw_frame.camera_xform = m4_scalar(1.0);
-			draw_frame.projection 	= m4_make_orthographic_projection(0.0, 240, 0.0, 135, -1, 10);
+			draw_frame.projection 	= m4_make_orthographic_projection(0.0, width, 0.0, height, -1, 10);
 
-			float ui_pos_x = 30.0f;
-			float ui_pos_y = 30.0f;
-
-			int item_counter = 0;
+			int resource_types_in_inventory = 0;
 			for (int i = 0; i < EntityType_count; i++) {
-				Item_Data *item = &world->inventory[i];
-				if (item->item_count > 0) {
-					item_counter += 1;
+				Resource_Data *resource = &world->inventory[i];
+				if (resource->count > 0) {
+					resource_types_in_inventory++;
+				}
+			}
+
+			Vector2 element_size 		   = v2(16, 16);
+			float padding 				   = 4.0;
+			float inventory_segment_width  = element_size.x + padding;
+
+			float inventory_width = resource_types_in_inventory * inventory_segment_width;
+
+			float inventory_pos_x = (width/2) - (inventory_width/2) + (inventory_segment_width/2);
+			float inventory_pos_y = 70.0f;
+
+			int element_count = 0;
+			for (int i = 0; i < EntityType_count; i++) {
+				Resource_Data *resource = &world->inventory[i];
+				if (resource->count > 0) {
+					float new_element_offset = element_count * inventory_segment_width; 
+
 					Matrix4 xform = m4_scalar(1.0);
-					xform		  = m4_translate(xform, v3(ui_pos_x, ui_pos_y, 0));
-					draw_rect_xform(xform, v2(16, 16), COLOR_BLACK);
+					xform		  = m4_translate(xform, v3(inventory_pos_x + new_element_offset, inventory_pos_y, 0));
+					xform		  = m4_translate(xform, v3(-element_size.x/2, -element_size.y/2, 0));
+					draw_rect_xform(xform, element_size, COLOR_BLACK);
 
 					Sprite *sprite = get_sprite_from_sprite_id(get_sprite_id_from_entity_type(i));
-
+					xform 		   = m4_translate(xform, v3(element_size.x/4, element_size.y/4, 0));
 					draw_image_xform(sprite->image, xform, get_sprite_size(sprite), COLOR_WHITE);
+
+					element_count++;
 				}
 			}
 		}
