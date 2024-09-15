@@ -237,7 +237,7 @@ int entry(int argc, char **argv) {
 	// Resource testing
 	{
 		world->inventory[EntityType_wood].count  = 5;
-		world->inventory[EntityType_stone].count = 5;
+		//world->inventory[EntityType_stone].count = 5;
 	}
 
 	Entity *player_entity = create_entity();
@@ -443,22 +443,23 @@ int entry(int argc, char **argv) {
 			draw_frame.camera_xform = m4_scalar(1.0);
 			draw_frame.projection 	= m4_make_orthographic_projection(0.0, width, 0.0, height, -1, 10);
 
-			int resource_types_in_inventory = 0;
-			for (int i = 0; i < EntityType_count; i++) {
-				Resource_Data *resource = &world->inventory[i];
-				if (resource->count > 0) {
-					resource_types_in_inventory++;
-				}
-			}
-
 			Vector2 element_size 		   = v2(16, 16);
 			float padding 				   = 4.0;
-			float inventory_segment_width  = element_size.x + padding;
+			float inventory_segment_width  = element_size.x;
 
-			float inventory_width = resource_types_in_inventory * inventory_segment_width;
+			#define INVENTORY_BAR_COUNT 8
 
-			float inventory_pos_x = (width/2) - (inventory_width/2) + (inventory_segment_width/2);
-			float inventory_pos_y = 70.0f;
+			float inventory_width = INVENTORY_BAR_COUNT * inventory_segment_width;
+
+			float inventory_pos_x = (width/2) - (inventory_width/2);
+			float inventory_pos_y = 30.0f;
+			
+			// Inventory bar rendering
+			{
+				Matrix4 xform = m4_scalar(1.0);
+				xform		  = m4_translate(xform, v3(inventory_pos_x, inventory_pos_y, 0));
+				draw_rect_xform(xform, v2(inventory_width, element_size.y), v4(0, 0, 0, 0.5));
+			}
 
 			int element_count = 0;
 			for (int i = 0; i < EntityType_count; i++) {
@@ -468,11 +469,24 @@ int entry(int argc, char **argv) {
 
 					Matrix4 xform = m4_scalar(1.0);
 					xform		  = m4_translate(xform, v3(inventory_pos_x + new_element_offset, inventory_pos_y, 0));
-					xform		  = m4_translate(xform, v3(-element_size.x/2, -element_size.y/2, 0));
-					draw_rect_xform(xform, element_size, COLOR_BLACK);
+					//xform		  = m4_translate(xform, v3(-element_size.x/2, -element_size.y/2, 0));
+					draw_rect_xform(xform, element_size, v4(1, 1, 1, 0.2));
 
+					xform 		   = m4_translate(xform, v3(element_size.x/2, element_size.y/2, 0));
+					{
+						// TODO: Juice dat inventory selection yo 
+						float scale_adjust = 0.1 * sin_bob(now, 20.0f);
+						xform			   = m4_scale(xform, v3(1+scale_adjust, 1+scale_adjust, 0));
+					}
+
+					{
+						// NOTE: could also rotate?
+						float32 rotate_adjust = ((PI32/4)) * sin_bob(now, 1.0f);
+						xform 				  = m4_rotate_z(xform, rotate_adjust);
+					}
 					Sprite *sprite = get_sprite_from_sprite_id(get_sprite_id_from_entity_type(i));
-					xform 		   = m4_translate(xform, v3(element_size.x/4, element_size.y/4, 0));
+					xform 		   = m4_translate(xform, v3(-get_sprite_size(sprite).x/2, -get_sprite_size(sprite).y/2, 0));
+
 					draw_image_xform(sprite->image, xform, get_sprite_size(sprite), COLOR_WHITE);
 
 					element_count++;
