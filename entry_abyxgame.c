@@ -41,6 +41,11 @@ void animate_v2_to_target(Vector2 *value, Vector2 target, float delta_t, float r
 	animate_f32_to_target(&(value->y), target.y, delta_t, rate);
 }
 
+Range2f quad_to_range(Draw_Quad *quad) {
+	Range2f result = {quad->bottom_left, quad->top_right};
+	return result;
+}
+
 //
 //
 //
@@ -190,26 +195,32 @@ void stone_init(Entity *entity) {
 	entity->is_resource  = true;
 }
 
-
-Vector2 mouse_screen_to_world() {
+Vector2 mouse_pos_in_ndc() {
 	float mouse_x 		= input_frame.mouse_x;
 	float mouse_y 		= input_frame.mouse_y;
-	Matrix4 proj  		= draw_frame.projection;
-	Matrix4 view  		= draw_frame.camera_xform;
 	float window_width  = window.width;
 	float window_height = window.height;
 
-	// NOTE: Normalise the mouse coordinates
+	// NOTE: Normalise the mouse coordinate
 	float ndc_x = (mouse_x / (window_width  * 0.5)) - 1.0f;
 	float ndc_y = (mouse_y / (window_height * 0.5)) - 1.0f;
 
+	Vector2 result = v2(ndc_x, ndc_y);
+	return result;
+}
+
+Vector2 mouse_screen_to_world() {
+	Matrix4 proj  		  = draw_frame.projection;
+	Matrix4 view  		  = draw_frame.camera_xform;
+	Vector2 mouse_ndc_pos = mouse_pos_in_ndc();
+
 	// NOTE: Transform the world coordinates
-	Vector4 world_pos = v4(ndc_x, ndc_y, 0, 1);
+	Vector4 world_pos = v4(mouse_ndc_pos.x, mouse_ndc_pos.y, 0, 1);
 	world_pos = m4_transform(m4_inverse(proj), world_pos);
 	world_pos = m4_transform(view, world_pos);
 
 	// NOTE: Return as 2D vector
-	Vector2 result = {world_pos.x, world_pos.y};
+	Vector2 result = v2(world_pos.x, world_pos.y);
 	return result;
 }
 
@@ -233,6 +244,10 @@ int entry(int argc, char **argv) {
 	sprites[SpriteID_rock0]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/rock00.png"),          get_heap_allocator()) };
 	sprites[SpriteID_wood]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/item_wood00.png"),     get_heap_allocator()) };
 	sprites[SpriteID_stone]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/item_rock00.png"),     get_heap_allocator()) };
+
+	Gfx_Font *font = load_font_from_disk(STR("C:/windows/fonts/arial.ttf"), get_heap_allocator());
+	assert(font, "Failed loading font arial.ttf, %d", GetLastError());
+	#define FONT_HEIGHT 48
 
 	// Resource testing
 	{
@@ -469,25 +484,40 @@ int entry(int argc, char **argv) {
 
 					Matrix4 xform = m4_scalar(1.0);
 					xform		  = m4_translate(xform, v3(inventory_pos_x + new_element_offset, inventory_pos_y, 0));
-					//xform		  = m4_translate(xform, v3(-element_size.x/2, -element_size.y/2, 0));
-					draw_rect_xform(xform, element_size, v4(1, 1, 1, 0.2));
+
+					float is_element_hovered = 0.0;
+
+					Draw_Quad *quad = draw_rect_xform(xform, element_size, v4(1, 1, 1, 0.2));
+					{
+						Range2f element_range = quad_to_range(quad);
+						Vector2 mouse_ndc_pos = mouse_pos_in_ndc();
+						if (range2f_contains(element_range, mouse_ndc_pos)) {
+							is_element_hovered = 1.0;
+						}
+					}
+
+					Matrix4 element_bottom_right_xform = xform;
 
 					xform 		   = m4_translate(xform, v3(element_size.x/2, element_size.y/2, 0));
-					{
-						// TODO: Juice dat inventory selection yo 
-						float scale_adjust = 0.1 * sin_bob(now, 20.0f);
-						xform			   = m4_scale(xform, v3(1+scale_adjust, 1+scale_adjust, 0));
+					if (is_element_hovered == 1.0) {
+						{
+							// TODO: Juice dat inventory selection yo 
+							float scale_adjust = 0.1 * sin_bob(now, 20.0f);
+							xform			   = m4_scale(xform, v3(1+scale_adjust, 1+scale_adjust, 0));
+						}
+						{
+							// NOTE: could also rotate?
+							float32 rotate_adjust = (((PI32/4)) * sin_bob(now, 1.0f)) - PI32/4;
+							xform 				  = m4_rotate_z(xform, rotate_adjust);
+						}
 					}
 
-					{
-						// NOTE: could also rotate?
-						float32 rotate_adjust = ((PI32/4)) * sin_bob(now, 1.0f);
-						xform 				  = m4_rotate_z(xform, rotate_adjust);
-					}
 					Sprite *sprite = get_sprite_from_sprite_id(get_sprite_id_from_entity_type(i));
 					xform 		   = m4_translate(xform, v3(-get_sprite_size(sprite).x/2, -get_sprite_size(sprite).y/2, 0));
 
 					draw_image_xform(sprite->image, xform, get_sprite_size(sprite), COLOR_WHITE);
+
+					draw_text_xform(font, STR("5"), FONT_HEIGHT, element_bottom_right_xform, v2(0.1, 0.1), COLOR_WHITE);
 
 					element_count++;
 				}
