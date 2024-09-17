@@ -40,3 +40,10 @@ bool range2f_contains(Range2f range, Vector2 vec) {
 				   vec.y >= range.min.y && vec.y <= range.max.y);
 	return result;
 }
+
+Vector2 range2f_get_mid(Range2f range) {
+	float32 mid_distance_x = (range.max.x - range.min.x) * 0.5; 
+	float32 mid_distance_y = (range.max.y - range.min.y) * 0.5; 
+	Vector2 result = v2(range.min.x + mid_distance_x, range.min.y + mid_distance_y); 
+	return result;
+}

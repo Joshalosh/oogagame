@@ -1,16 +1,33 @@
 
 #include "range.c"
 
-#define TILE_WIDTH    16
-#define TILE_HEIGHT   16
-#define CLICK_RADIUS  32.0
-#define PICKUP_RADIUS 40.0
-#define ROCK_HP 	  3
-#define TREE_HP 	  3
+#define INVENTORY_BG_COL v4(0, 0, 0, 0.5)
+#define TILE_WIDTH       16
+#define TILE_HEIGHT      16
+#define CLICK_RADIUS     32.0
+#define PICKUP_RADIUS 	 40.0
+#define ROCK_HP 	     3
+#define TREE_HP 	  	 3
 
 //
 // Generic Utilities
 //
+
+Draw_Quad quad_in_screen_space(Draw_Quad quad) {
+	// NOTE: I Assume these matricies are needed for screen space
+	Matrix4 proj               = draw_frame.projection;
+	Matrix4 view 			   = draw_frame.camera_xform;
+
+	Matrix4 screen_space_xform = m4_scalar(1.0);
+	screen_space_xform 		   = m4_mul(screen_space_xform, m4_inverse(proj));
+	screen_space_xform 		   = m4_mul(screen_space_xform, view);
+
+	quad.bottom_left 		   = m4_transform(screen_space_xform, v4(v2_expand(quad.bottom_left), 0, 1)).xy;
+	quad.bottom_right 		   = m4_transform(screen_space_xform, v4(v2_expand(quad.bottom_right), 0, 1)).xy;
+	quad.top_left              = m4_transform(screen_space_xform, v4(v2_expand(quad.top_left), 0, 1)).xy;
+	quad.top_right 	   		   = m4_transform(screen_space_xform, v4(v2_expand(quad.top_right), 0, 1)).xy;
+	return quad;
+}
 
 // NOTE: this sin_bob function goes between 0 and 1, when normally
 // without intervention it would go between -1 and 1
@@ -438,11 +455,11 @@ int entry(int argc, char **argv) {
 						rect_xform          = m4_translate(rect_xform, v3(entity->pos.x, entity->pos.y, 0));
 						rect_xform          = m4_translate(rect_xform, v3(sprite->image->width * -0.5, 0, 0));
 
-						Vector4 color = COLOR_WHITE;
+						Vector4 col = COLOR_WHITE;
 						if (world_frame.selected_entity == entity) {
-							color = COLOR_GREEN;
+							col = COLOR_GREEN;
 						}
-						draw_image_xform(sprite->image, rect_xform, get_sprite_size(sprite), color);
+						draw_image_xform(sprite->image, rect_xform, get_sprite_size(sprite), col);
 					} break;
 				}
 			}
@@ -473,7 +490,7 @@ int entry(int argc, char **argv) {
 			{
 				Matrix4 xform = m4_scalar(1.0);
 				xform		  = m4_translate(xform, v3(inventory_pos_x, inventory_pos_y, 0));
-				draw_rect_xform(xform, v2(inventory_width, element_size.y), v4(0, 0, 0, 0.5));
+				draw_rect_xform(xform, v2(inventory_width, element_size.y), INVENTORY_BG_COL);
 			}
 
 			int element_count = 0;
@@ -488,12 +505,10 @@ int entry(int argc, char **argv) {
 					float is_element_hovered = 0.0;
 
 					Draw_Quad *quad = draw_rect_xform(xform, element_size, v4(1, 1, 1, 0.2));
-					{
-						Range2f element_range = quad_to_range(quad);
-						Vector2 mouse_ndc_pos = mouse_pos_in_ndc();
-						if (range2f_contains(element_range, mouse_ndc_pos)) {
-							is_element_hovered = 1.0;
-						}
+					Range2f element_range = quad_to_range(quad);
+					Vector2 mouse_ndc_pos = mouse_pos_in_ndc();
+					if (range2f_contains(element_range, mouse_ndc_pos)) {
+						is_element_hovered = 1.0;
 					}
 
 					Matrix4 element_bottom_right_xform = xform;
@@ -502,14 +517,16 @@ int entry(int argc, char **argv) {
 					if (is_element_hovered == 1.0) {
 						{
 							// TODO: Juice dat inventory selection yo 
-							float scale_adjust = 0.1 * sin_bob(now, 20.0f);
+							float scale_adjust = 0.3;//0.1 * sin_bob(now, 20.0f);
 							xform			   = m4_scale(xform, v3(1+scale_adjust, 1+scale_adjust, 0));
 						}
+#if 0
 						{
 							// NOTE: could also rotate?
 							float32 rotate_adjust = (((PI32/4)) * sin_bob(now, 1.0f)) - PI32/4;
 							xform 				  = m4_rotate_z(xform, rotate_adjust);
 						}
+#endif
 					}
 
 					Sprite *sprite = get_sprite_from_sprite_id(get_sprite_id_from_entity_type(i));
@@ -517,7 +534,21 @@ int entry(int argc, char **argv) {
 
 					draw_image_xform(sprite->image, xform, get_sprite_size(sprite), COLOR_WHITE);
 
-					draw_text_xform(font, STR("5"), FONT_HEIGHT, element_bottom_right_xform, v2(0.1, 0.1), COLOR_WHITE);
+					//draw_text_xform(font, STR("5"), FONT_HEIGHT, element_bottom_right_xform, v2(0.1, 0.1), COLOR_WHITE);
+
+					// Tooltip
+					{
+						Draw_Quad screen_quad = quad_in_screen_space(*quad);
+						Range2f screen_range  = quad_to_range(&screen_quad);
+						Vector2 element_mid = range2f_get_mid(screen_range);
+
+						Vector2 tooltip_size  = v2(20, 40);
+						Matrix4 tooltip_xform = m4_scalar(1.0);
+
+						tooltip_xform = m4_translate(tooltip_xform, v3(element_mid.x, element_mid.y, 0));
+
+						draw_rect_xform(tooltip_xform, tooltip_size, INVENTORY_BG_COL);
+					}
 
 					element_count++;
 				}
