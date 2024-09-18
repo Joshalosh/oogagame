@@ -477,11 +477,10 @@ int entry(int argc, char **argv) {
 
 			Vector2 element_size 		   = v2(16, 16);
 			float padding 				   = 4.0;
-			float inventory_segment_width  = element_size.x;
 
 			#define INVENTORY_BAR_COUNT 8
 
-			float inventory_width = INVENTORY_BAR_COUNT * inventory_segment_width;
+			float inventory_width = INVENTORY_BAR_COUNT * element_size.x;
 
 			float inventory_pos_x = (width/2) - (inventory_width/2);
 			float inventory_pos_y = 30.0f;
@@ -497,7 +496,7 @@ int entry(int argc, char **argv) {
 			for (int i = 0; i < EntityType_count; i++) {
 				Resource_Data *resource = &world->inventory[i];
 				if (resource->count > 0) {
-					float new_element_offset = element_count * inventory_segment_width; 
+					float new_element_offset = element_count * element_size.x; 
 
 					Matrix4 xform = m4_scalar(1.0);
 					xform		  = m4_translate(xform, v3(inventory_pos_x + new_element_offset, inventory_pos_y, 0));
@@ -537,15 +536,19 @@ int entry(int argc, char **argv) {
 					//draw_text_xform(font, STR("5"), FONT_HEIGHT, element_bottom_right_xform, v2(0.1, 0.1), COLOR_WHITE);
 
 					// Tooltip
+					if (is_element_hovered == 1.0f)
 					{
 						Draw_Quad screen_quad = quad_in_screen_space(*quad);
 						Range2f screen_range  = quad_to_range(&screen_quad);
 						Vector2 element_mid = range2f_get_mid(screen_range);
 
-						Vector2 tooltip_size  = v2(20, 40);
+						Vector2 tooltip_size  = v2(40, 20);
 						Matrix4 tooltip_xform = m4_scalar(1.0);
 
+						//float32 tooltip_start_offset = (-element_size.x*0.5) - (element_size.x*element_count);
+
 						tooltip_xform = m4_translate(tooltip_xform, v3(element_mid.x, element_mid.y, 0));
+						tooltip_xform = m4_translate(tooltip_xform, v3(-element_size.x*0.5, -tooltip_size.y - element_size.y*0.5, 0));
 
 						draw_rect_xform(tooltip_xform, tooltip_size, INVENTORY_BG_COL);
 					}
