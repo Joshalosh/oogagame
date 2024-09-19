@@ -124,8 +124,16 @@ typedef enum Entity_Type {
 Sprite_ID get_sprite_id_from_entity_type(Entity_Type type) {
 	switch(type) {
 		case EntityType_stone: return SpriteID_stone; break;
-		case EntityType_wood: return SpriteID_wood; break;
+		case EntityType_wood:  return SpriteID_wood;  break;
 		default: return 0;
+	}
+}
+
+string get_entity_type_name(Entity_Type type) {
+	switch(type) {
+		case EntityType_stone: return STR("Stone"); break;
+		case EntityType_wood:  return STR("Wood");  break;
+		default: return STR("No name found");
 	}
 }
 
@@ -493,8 +501,8 @@ int entry(int argc, char **argv) {
 			}
 
 			int element_count = 0;
-			for (int i = 0; i < EntityType_count; i++) {
-				Resource_Data *resource = &world->inventory[i];
+			for (int entity_type = 0; entity_type < EntityType_count; entity_type++) {
+				Resource_Data *resource = &world->inventory[entity_type];
 				if (resource->count > 0) {
 					float new_element_offset = element_count * element_size.x; 
 
@@ -528,7 +536,7 @@ int entry(int argc, char **argv) {
 #endif
 					}
 
-					Sprite *sprite = get_sprite_from_sprite_id(get_sprite_id_from_entity_type(i));
+					Sprite *sprite = get_sprite_from_sprite_id(get_sprite_id_from_entity_type(entity_type));
 					xform 		   = m4_translate(xform, v3(-get_sprite_size(sprite).x/2, -get_sprite_size(sprite).y/2, 0));
 
 					draw_image_xform(sprite->image, xform, get_sprite_size(sprite), COLOR_WHITE);
@@ -540,9 +548,9 @@ int entry(int argc, char **argv) {
 					{
 						Draw_Quad screen_quad = quad_in_screen_space(*quad);
 						Range2f screen_range  = quad_to_range(&screen_quad);
-						Vector2 element_mid = range2f_get_mid(screen_range);
+						Vector2 element_mid   = range2f_get_mid(screen_range);
 
-						Vector2 tooltip_size  = v2(40, 20);
+						Vector2 tooltip_size  = v2(30, 12.5);
 						Matrix4 tooltip_xform = m4_scalar(1.0);
 
 						//float32 tooltip_start_offset = (-element_size.x*0.5) - (element_size.x*element_count);
@@ -551,6 +559,32 @@ int entry(int argc, char **argv) {
 						tooltip_xform = m4_translate(tooltip_xform, v3(-element_size.x*0.5, -tooltip_size.y - element_size.y*0.5, 0));
 
 						draw_rect_xform(tooltip_xform, tooltip_size, INVENTORY_BG_COL);
+
+      
+						Vector2 draw_pos = element_mid;
+	     				{
+							string title = get_entity_type_name(entity_type);
+							Gfx_Text_Metrics metrics = measure_text(font, title, FONT_HEIGHT, v2(0.1, 0.1));
+							draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
+							draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(-0.5, -0.5)));
+							
+							// NOTE: Use this offset in the below draw_pos if you want the text centred
+							// in the middle of the tooltip box.
+							//float x_offset = (tooltip_size.x * 0.5) - (element_size.x * 0.5);
+							draw_pos = v2_add(draw_pos, v2(0, (-element_size.y*0.5)-4.0));
+
+							draw_text(font, title, FONT_HEIGHT, draw_pos, v2(0.1, 0.1), COLOR_WHITE);
+						}
+						{
+							string text = STR("x%i");
+							text = sprint(get_temporary_allocator(), text, resource->count);
+
+							Gfx_Text_Metrics metrics = measure_text(font, text, FONT_HEIGHT, v2(0.1, 0.1));
+							draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
+							draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(0, -1.5)));
+							
+							draw_text(font, text, FONT_HEIGHT, draw_pos, v2(0.1, 0.1), COLOR_WHITE);
+						}
 					}
 
 					element_count++;
