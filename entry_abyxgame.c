@@ -152,10 +152,18 @@ typedef struct Resource_Data {
 	int count;
 } Resource_Data;
 
+typedef enum UX_State {
+	UXState_none,
+	UXState_inventory,
+} UX_State;
+
 #define MAX_ENTITY_COUNT 1024
 typedef struct World {
 	Entity entities[MAX_ENTITY_COUNT];
 	Resource_Data inventory[EntityType_count];
+	UX_State ux_state;
+	float inventory_alpha;
+	float inventory_target_alpha;
 } World;
 World *world = 0;
 
@@ -276,7 +284,7 @@ int entry(int argc, char **argv) {
 
 	// Resource testing
 	{
-		world->inventory[EntityType_wood].count  = 5;
+		//world->inventory[EntityType_wood].count  = 5;
 		//world->inventory[EntityType_stone].count = 5;
 	}
 
@@ -483,111 +491,124 @@ int entry(int argc, char **argv) {
 			draw_frame.camera_xform = m4_scalar(1.0);
 			draw_frame.projection 	= m4_make_orthographic_projection(0.0, width, 0.0, height, -1, 10);
 
-			Vector2 element_size 		   = v2(16, 16);
-			float padding 				   = 4.0;
-
-			#define INVENTORY_BAR_COUNT 8
-
-			float inventory_width = INVENTORY_BAR_COUNT * element_size.x;
-
-			float inventory_pos_x = (width/2) - (inventory_width/2);
-			float inventory_pos_y = 30.0f;
-			
-			// Inventory bar rendering
-			{
-				Matrix4 xform = m4_scalar(1.0);
-				xform		  = m4_translate(xform, v3(inventory_pos_x, inventory_pos_y, 0));
-				draw_rect_xform(xform, v2(inventory_width, element_size.y), INVENTORY_BG_COL);
+			// Inventory UI
+			if (is_key_just_pressed(KEY_TAB)) {
+				consume_key_just_pressed(KEY_TAB);
+				world->ux_state = world->ux_state == UXState_inventory ? UXState_none : UXState_inventory;
 			}
 
-			int element_count = 0;
-			for (int entity_type = 0; entity_type < EntityType_count; entity_type++) {
-				Resource_Data *resource = &world->inventory[entity_type];
-				if (resource->count > 0) {
-					float new_element_offset = element_count * element_size.x; 
+			world->inventory_target_alpha = world->ux_state == UXState_inventory ? 1.0 : 0.0;
+			animate_f32_to_target(&world->inventory_alpha, world->inventory_target_alpha, delta_t, 15.0);
 
+			bool inventory_enabled        = world->inventory_target_alpha == 1.0;
+			if (world->inventory_target_alpha != 0.0)
+			{
+				Vector2 element_size 		   = v2(16, 16);
+				float padding 				   = 4.0;
+
+				#define INVENTORY_BAR_COUNT 8
+
+				float inventory_width = INVENTORY_BAR_COUNT * element_size.x;
+
+				float inventory_pos_x = (width/2) - (inventory_width/2);
+				float inventory_pos_y = 30.0f;
+				
+				// Inventory bar rendering
+				{
 					Matrix4 xform = m4_scalar(1.0);
-					xform		  = m4_translate(xform, v3(inventory_pos_x + new_element_offset, inventory_pos_y, 0));
+					xform		  = m4_translate(xform, v3(inventory_pos_x, inventory_pos_y, 0));
+					draw_rect_xform(xform, v2(inventory_width, element_size.y), INVENTORY_BG_COL);
+				}
 
-					float is_element_hovered = 0.0;
+				int element_count = 0;
+				for (int entity_type = 0; entity_type < EntityType_count; entity_type++) {
+					Resource_Data *resource = &world->inventory[entity_type];
+					if (resource->count > 0) {
+						float new_element_offset = element_count * element_size.x; 
 
-					Draw_Quad *quad = draw_rect_xform(xform, element_size, v4(1, 1, 1, 0.2));
-					Range2f element_range = quad_to_range(quad);
-					Vector2 mouse_ndc_pos = mouse_pos_in_ndc();
-					if (range2f_contains(element_range, mouse_ndc_pos)) {
-						is_element_hovered = 1.0;
-					}
+						Matrix4 xform = m4_scalar(1.0);
+						xform		  = m4_translate(xform, v3(inventory_pos_x + new_element_offset, inventory_pos_y, 0));
 
-					Matrix4 element_bottom_right_xform = xform;
+						float is_element_hovered = 0.0;
 
-					xform 		   = m4_translate(xform, v3(element_size.x/2, element_size.y/2, 0));
-					if (is_element_hovered == 1.0) {
+						Draw_Quad *quad = draw_rect_xform(xform, element_size, v4(1, 1, 1, 0.2));
+						Range2f element_range = quad_to_range(quad);
+						Vector2 mouse_ndc_pos = mouse_pos_in_ndc();
+						if (inventory_enabled && range2f_contains(element_range, mouse_ndc_pos)) {
+							is_element_hovered = 1.0;
+						}
+
+						Matrix4 element_bottom_right_xform = xform;
+
+						xform 		   = m4_translate(xform, v3(element_size.x/2, element_size.y/2, 0));
+						if (is_element_hovered == 1.0) {
+							{
+								// TODO: Juice dat inventory selection yo 
+								float scale_adjust = 0.3;//0.1 * sin_bob(now, 20.0f);
+								xform			   = m4_scale(xform, v3(1+scale_adjust, 1+scale_adjust, 0));
+							}
+	#if 0
+							{
+								// NOTE: could also rotate?
+								float32 rotate_adjust = (((PI32/4)) * sin_bob(now, 1.0f)) - PI32/4;
+								xform 				  = m4_rotate_z(xform, rotate_adjust);
+							}
+	#endif
+						}
+
+						Sprite *sprite = get_sprite_from_sprite_id(get_sprite_id_from_entity_type(entity_type));
+						xform 		   = m4_translate(xform, v3(-get_sprite_size(sprite).x/2, -get_sprite_size(sprite).y/2, 0));
+
+						draw_image_xform(sprite->image, xform, get_sprite_size(sprite), COLOR_WHITE);
+
+						//draw_text_xform(font, STR("5"), FONT_HEIGHT, element_bottom_right_xform, v2(0.1, 0.1), COLOR_WHITE);
+
+						// Tooltip
+						if (is_element_hovered == 1.0f)
 						{
-							// TODO: Juice dat inventory selection yo 
-							float scale_adjust = 0.3;//0.1 * sin_bob(now, 20.0f);
-							xform			   = m4_scale(xform, v3(1+scale_adjust, 1+scale_adjust, 0));
+							Draw_Quad screen_quad = quad_in_screen_space(*quad);
+							Range2f screen_range  = quad_to_range(&screen_quad);
+							Vector2 element_mid   = range2f_get_mid(screen_range);
+
+							Vector2 tooltip_size  = v2(30, 12.5);
+							Matrix4 tooltip_xform = m4_scalar(1.0);
+
+							//float32 tooltip_start_offset = (-element_size.x*0.5) - (element_size.x*element_count);
+
+							tooltip_xform = m4_translate(tooltip_xform, v3(element_mid.x, element_mid.y, 0));
+							tooltip_xform = m4_translate(tooltip_xform, v3(-element_size.x*0.5, -tooltip_size.y - element_size.y*0.5, 0));
+
+							draw_rect_xform(tooltip_xform, tooltip_size, INVENTORY_BG_COL);
+
+		
+							Vector2 draw_pos = element_mid;
+							{
+								string title = get_entity_type_name(entity_type);
+								Gfx_Text_Metrics metrics = measure_text(font, title, FONT_HEIGHT, v2(0.1, 0.1));
+								draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
+								draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(-0.5, -0.5)));
+								
+								// NOTE: Use this offset in the below draw_pos if you want the text centred
+								// in the middle of the tooltip box.
+								//float x_offset = (tooltip_size.x * 0.5) - (element_size.x * 0.5);
+								draw_pos = v2_add(draw_pos, v2(0, (-element_size.y*0.5)-4.0));
+
+								draw_text(font, title, FONT_HEIGHT, draw_pos, v2(0.1, 0.1), COLOR_WHITE);
+							}
+							{
+								string text = STR("x%i");
+								text = sprint(get_temporary_allocator(), text, resource->count);
+
+								Gfx_Text_Metrics metrics = measure_text(font, text, FONT_HEIGHT, v2(0.1, 0.1));
+								draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
+								draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(0, -1.5)));
+								
+								draw_text(font, text, FONT_HEIGHT, draw_pos, v2(0.1, 0.1), COLOR_WHITE);
+							}
 						}
-#if 0
-						{
-							// NOTE: could also rotate?
-							float32 rotate_adjust = (((PI32/4)) * sin_bob(now, 1.0f)) - PI32/4;
-							xform 				  = m4_rotate_z(xform, rotate_adjust);
-						}
-#endif
+
+						element_count++;
 					}
-
-					Sprite *sprite = get_sprite_from_sprite_id(get_sprite_id_from_entity_type(entity_type));
-					xform 		   = m4_translate(xform, v3(-get_sprite_size(sprite).x/2, -get_sprite_size(sprite).y/2, 0));
-
-					draw_image_xform(sprite->image, xform, get_sprite_size(sprite), COLOR_WHITE);
-
-					//draw_text_xform(font, STR("5"), FONT_HEIGHT, element_bottom_right_xform, v2(0.1, 0.1), COLOR_WHITE);
-
-					// Tooltip
-					if (is_element_hovered == 1.0f)
-					{
-						Draw_Quad screen_quad = quad_in_screen_space(*quad);
-						Range2f screen_range  = quad_to_range(&screen_quad);
-						Vector2 element_mid   = range2f_get_mid(screen_range);
-
-						Vector2 tooltip_size  = v2(30, 12.5);
-						Matrix4 tooltip_xform = m4_scalar(1.0);
-
-						//float32 tooltip_start_offset = (-element_size.x*0.5) - (element_size.x*element_count);
-
-						tooltip_xform = m4_translate(tooltip_xform, v3(element_mid.x, element_mid.y, 0));
-						tooltip_xform = m4_translate(tooltip_xform, v3(-element_size.x*0.5, -tooltip_size.y - element_size.y*0.5, 0));
-
-						draw_rect_xform(tooltip_xform, tooltip_size, INVENTORY_BG_COL);
-
-      
-						Vector2 draw_pos = element_mid;
-	     				{
-							string title = get_entity_type_name(entity_type);
-							Gfx_Text_Metrics metrics = measure_text(font, title, FONT_HEIGHT, v2(0.1, 0.1));
-							draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
-							draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(-0.5, -0.5)));
-							
-							// NOTE: Use this offset in the below draw_pos if you want the text centred
-							// in the middle of the tooltip box.
-							//float x_offset = (tooltip_size.x * 0.5) - (element_size.x * 0.5);
-							draw_pos = v2_add(draw_pos, v2(0, (-element_size.y*0.5)-4.0));
-
-							draw_text(font, title, FONT_HEIGHT, draw_pos, v2(0.1, 0.1), COLOR_WHITE);
-						}
-						{
-							string text = STR("x%i");
-							text = sprint(get_temporary_allocator(), text, resource->count);
-
-							Gfx_Text_Metrics metrics = measure_text(font, text, FONT_HEIGHT, v2(0.1, 0.1));
-							draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
-							draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(0, -1.5)));
-							
-							draw_text(font, text, FONT_HEIGHT, draw_pos, v2(0.1, 0.1), COLOR_WHITE);
-						}
-					}
-
-					element_count++;
 				}
 			}
 		}
