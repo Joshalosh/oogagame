@@ -83,6 +83,7 @@ Vector2 round_v2_to_tile(Vector2 world_pos){
 	return world_pos;
 }
 
+// :Sprite
 typedef enum Sprite_ID {
 	SpriteID_none,
 	SpriteID_player,
@@ -91,6 +92,8 @@ typedef enum Sprite_ID {
 	SpriteID_rock0,
 	SpriteID_stone,
 	SpriteID_wood,
+	SpriteID_oven,
+	SpriteID_alter,
 	SpriteID_count,
 } Sprite_ID;
 typedef struct Sprite {
@@ -102,6 +105,9 @@ Sprite *get_sprite_from_sprite_id(Sprite_ID id) {
 	Sprite *result = &sprites[0];
 	if (id >= 0 && id < SpriteID_count) {
 		result = &sprites[id];
+		if (!result->image) {
+			result = &sprites[0];
+		}
 	}
 	return result;
 }
@@ -118,6 +124,8 @@ typedef enum Entity_Type {
 	EntityType_player,
 	EntityType_stone,
 	EntityType_wood,
+	EntityType_oven,
+	EntityType_alter,
 	EntityType_count,
 } Entity_Type;
 
@@ -148,13 +156,30 @@ typedef struct Entity {
 	bool is_resource;
 } Entity;
 
+// :resource
 typedef struct Resource_Data {
 	int count;
 } Resource_Data;
 
+// :build
+#if 0
+typedef enum Build_ID{
+	BuildID_none,
+	BuildID_oven,
+	BuildID_alter,
+	BuildID_count,
+} Build_ID;
+typedef struct Build_Data {
+	// TODO: fill this bad boy up
+} Build_Data;
+Build_Data buildings[BuildID_count];
+#endif
+
+// :ux
 typedef enum UX_State {
 	UXState_none,
 	UXState_inventory,
+	UXState_build,
 } UX_State;
 
 #define MAX_ENTITY_COUNT 1024
@@ -164,6 +189,8 @@ typedef struct World {
 	UX_State ux_state;
 	float inventory_alpha;
 	float inventory_target_alpha;
+	float build_alpha;
+	float build_target_alpha;
 } World;
 World *world = 0;
 
@@ -190,6 +217,7 @@ void entity_destroy(Entity *entity) {
 	memset(entity, 0, sizeof(Entity));
 }
 
+// :Init structs
 void player_init(Entity *entity) {
 	entity->type 	  	 = EntityType_player;
 	entity->pos 	     = v2(0,0);
@@ -198,12 +226,17 @@ void player_init(Entity *entity) {
 	entity->is_resource	 = false;
 }
 
+void oven_init(Entity *entity) {
+	entity->type 		 = EntityType_oven;
+	entity->sprite_id    = SpriteID_oven;
+}
+
 void rock_init(Entity *entity) {
 	entity->type 	  	 = EntityType_rock;
 	entity->sprite_id    = SpriteID_rock0;
 	entity->health    	 = ROCK_HP;
 	entity->destructable = true;
-	entity->is_resource  =false;
+	entity->is_resource  = false;
 }
 
 void tree_init(Entity *entity) {
@@ -277,15 +310,29 @@ int entry(int argc, char **argv) {
 	sprites[SpriteID_rock0]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/rock00.png"),          get_heap_allocator()) };
 	sprites[SpriteID_wood]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/item_wood00.png"),     get_heap_allocator()) };
 	sprites[SpriteID_stone]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/item_rock00.png"),     get_heap_allocator()) };
+	sprites[SpriteID_oven]   	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/oven.png"),            get_heap_allocator()) };
+	sprites[SpriteID_alter]  	 = (Sprite){ .image=load_image_from_disk(STR("res/sprites/alter.png"),           get_heap_allocator()) };
+
+	// TODO: @ship get rid of this debug code
+	{
+		for (Sprite_ID sprite_id = 0; sprite_id < SpriteID_count; sprite_id++) {
+			Sprite *sprite = &sprites[sprite_id];
+			assert(sprite->image, "Sprite image was not found");
+		}
+
+	}
 
 	Gfx_Font *font = load_font_from_disk(STR("C:/windows/fonts/arial.ttf"), get_heap_allocator());
 	assert(font, "Failed loading font arial.ttf, %d", GetLastError());
 	#define FONT_HEIGHT 48
 
 	// Resource testing
+	// TODO: @ship get rid of this debug code
 	{
 		//world->inventory[EntityType_wood].count  = 5;
 		//world->inventory[EntityType_stone].count = 5;
+		Entity *entity = create_entity();
+		oven_init(entity);
 	}
 
 	Entity *player_entity = create_entity();
@@ -492,127 +539,164 @@ int entry(int argc, char **argv) {
 			draw_frame.projection 	= m4_make_orthographic_projection(0.0, width, 0.0, height, -1, 10);
 
 			// Inventory UI
-			if (is_key_just_pressed(KEY_TAB)) {
-				consume_key_just_pressed(KEY_TAB);
-				world->ux_state = world->ux_state == UXState_inventory ? UXState_none : UXState_inventory;
-			}
-
-			world->inventory_target_alpha = world->ux_state == UXState_inventory ? 1.0 : 0.0;
-			animate_f32_to_target(&world->inventory_alpha, world->inventory_target_alpha, delta_t, 15.0);
-
-			bool inventory_enabled        = world->inventory_target_alpha == 1.0;
-			if (world->inventory_target_alpha != 0.0)
 			{
-				Vector2 element_size 		   = v2(16, 16);
-				float padding 				   = 4.0;
-
-				#define INVENTORY_BAR_COUNT 8
-
-				float inventory_width = INVENTORY_BAR_COUNT * element_size.x;
-
-				float inventory_pos_x = (width/2) - (inventory_width/2);
-				float inventory_pos_y = 30.0f;
-				
-				// Inventory bar rendering
-				{
-					Matrix4 xform = m4_scalar(1.0);
-					xform		  = m4_translate(xform, v3(inventory_pos_x, inventory_pos_y, 0));
-					draw_rect_xform(xform, v2(inventory_width, element_size.y), INVENTORY_BG_COL);
+				if (is_key_just_pressed(KEY_TAB)) {
+					consume_key_just_pressed(KEY_TAB);
+					world->ux_state = world->ux_state == UXState_inventory ? UXState_none : UXState_inventory;
 				}
 
-				int element_count = 0;
-				for (int entity_type = 0; entity_type < EntityType_count; entity_type++) {
-					Resource_Data *resource = &world->inventory[entity_type];
-					if (resource->count > 0) {
-						float new_element_offset = element_count * element_size.x; 
+				world->inventory_target_alpha = world->ux_state == UXState_inventory ? 1.0 : 0.0;
+				animate_f32_to_target(&world->inventory_alpha, world->inventory_target_alpha, delta_t, 15.0);
 
+				bool inventory_enabled        = world->inventory_target_alpha == 1.0;
+				if (world->inventory_target_alpha != 0.0)
+				{
+					Vector2 element_size 		   = v2(16, 16);
+					float padding 				   = 4.0;
+
+					#define INVENTORY_BAR_COUNT 8
+
+					float inventory_width = INVENTORY_BAR_COUNT * element_size.x;
+
+					float inventory_pos_x = (width/2) - (inventory_width/2);
+					float inventory_pos_y = 30.0f;
+					
+					// Inventory bar rendering
+					{
 						Matrix4 xform = m4_scalar(1.0);
-						xform		  = m4_translate(xform, v3(inventory_pos_x + new_element_offset, inventory_pos_y, 0));
+						xform		  = m4_translate(xform, v3(inventory_pos_x, inventory_pos_y, 0));
+						draw_rect_xform(xform, v2(inventory_width, element_size.y), INVENTORY_BG_COL);
+					}
 
-						float is_element_hovered = 0.0;
+					int element_count = 0;
+					for (int entity_type = 0; entity_type < EntityType_count; entity_type++) {
+						Resource_Data *resource = &world->inventory[entity_type];
+						if (resource->count > 0) {
+							float new_element_offset = element_count * element_size.x; 
 
-						Draw_Quad *quad = draw_rect_xform(xform, element_size, v4(1, 1, 1, 0.2));
-						Range2f element_range = quad_to_range(quad);
-						Vector2 mouse_ndc_pos = mouse_pos_in_ndc();
-						if (inventory_enabled && range2f_contains(element_range, mouse_ndc_pos)) {
-							is_element_hovered = 1.0;
+							Matrix4 xform = m4_scalar(1.0);
+							xform		  = m4_translate(xform, v3(inventory_pos_x + new_element_offset, inventory_pos_y, 0));
+
+							float is_element_hovered = 0.0;
+
+							Draw_Quad *quad = draw_rect_xform(xform, element_size, v4(1, 1, 1, 0.2));
+							Range2f element_range = quad_to_range(quad);
+							Vector2 mouse_ndc_pos = mouse_pos_in_ndc();
+							if (inventory_enabled && range2f_contains(element_range, mouse_ndc_pos)) {
+								is_element_hovered = 1.0;
+							}
+
+							Matrix4 element_bottom_right_xform = xform;
+
+							xform 		   = m4_translate(xform, v3(element_size.x/2, element_size.y/2, 0));
+							if (is_element_hovered == 1.0) {
+								{
+									// TODO: Juice dat inventory selection yo 
+									float scale_adjust = 0.3;//0.1 * sin_bob(now, 20.0f);
+									xform			   = m4_scale(xform, v3(1+scale_adjust, 1+scale_adjust, 0));
+								}
+		#if 0
+								{
+									// NOTE: could also rotate?
+									float32 rotate_adjust = (((PI32/4)) * sin_bob(now, 1.0f)) - PI32/4;
+									xform 				  = m4_rotate_z(xform, rotate_adjust);
+								}
+		#endif
+							}
+
+							Sprite *sprite = get_sprite_from_sprite_id(get_sprite_id_from_entity_type(entity_type));
+							xform 		   = m4_translate(xform, v3(-get_sprite_size(sprite).x/2, -get_sprite_size(sprite).y/2, 0));
+
+							draw_image_xform(sprite->image, xform, get_sprite_size(sprite), COLOR_WHITE);
+
+							//draw_text_xform(font, STR("5"), FONT_HEIGHT, element_bottom_right_xform, v2(0.1, 0.1), COLOR_WHITE);
+
+							// Tooltip
+							if (is_element_hovered == 1.0f)
+							{
+								Draw_Quad screen_quad = quad_in_screen_space(*quad);
+								Range2f screen_range  = quad_to_range(&screen_quad);
+								Vector2 element_mid   = range2f_get_mid(screen_range);
+
+								Vector2 tooltip_size  = v2(30, 12.5);
+								Matrix4 tooltip_xform = m4_scalar(1.0);
+
+								//float32 tooltip_start_offset = (-element_size.x*0.5) - (element_size.x*element_count);
+
+								tooltip_xform = m4_translate(tooltip_xform, v3(element_mid.x, element_mid.y, 0));
+								tooltip_xform = m4_translate(tooltip_xform, v3(-element_size.x*0.5, -tooltip_size.y - element_size.y*0.5, 0));
+
+								draw_rect_xform(tooltip_xform, tooltip_size, INVENTORY_BG_COL);
+
+			
+								Vector2 draw_pos = element_mid;
+								{
+									string title = get_entity_type_name(entity_type);
+									Gfx_Text_Metrics metrics = measure_text(font, title, FONT_HEIGHT, v2(0.1, 0.1));
+									draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
+									draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(-0.5, -0.5)));
+									
+									// NOTE: Use this offset in the below draw_pos if you want the text centred
+									// in the middle of the tooltip box.
+									//float x_offset = (tooltip_size.x * 0.5) - (element_size.x * 0.5);
+									draw_pos = v2_add(draw_pos, v2(0, (-element_size.y*0.5)-4.0));
+
+									draw_text(font, title, FONT_HEIGHT, draw_pos, v2(0.1, 0.1), COLOR_WHITE);
+								}
+								{
+									string text = STR("x%i");
+									text = sprint(get_temporary_allocator(), text, resource->count);
+
+									Gfx_Text_Metrics metrics = measure_text(font, text, FONT_HEIGHT, v2(0.1, 0.1));
+									draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
+									draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(0, -1.5)));
+									
+									draw_text(font, text, FONT_HEIGHT, draw_pos, v2(0.1, 0.1), COLOR_WHITE);
+								}
+							}
+
+							element_count++;
 						}
+					}
+				}
+			}
 
-						Matrix4 element_bottom_right_xform = xform;
+			// Building UI
+			{
+				if (is_key_just_pressed('C')) {
+					consume_key_just_pressed('C');
+					world->ux_state = world->ux_state == UXState_build ? UXState_none : UXState_build;
+				}
 
-						xform 		   = m4_translate(xform, v3(element_size.x/2, element_size.y/2, 0));
-						if (is_element_hovered == 1.0) {
-							{
-								// TODO: Juice dat inventory selection yo 
-								float scale_adjust = 0.3;//0.1 * sin_bob(now, 20.0f);
-								xform			   = m4_scale(xform, v3(1+scale_adjust, 1+scale_adjust, 0));
-							}
-	#if 0
-							{
-								// NOTE: could also rotate?
-								float32 rotate_adjust = (((PI32/4)) * sin_bob(now, 1.0f)) - PI32/4;
-								xform 				  = m4_rotate_z(xform, rotate_adjust);
-							}
-	#endif
-						}
+				world->build_target_alpha = world->ux_state == UXState_build ? 1.0 : 0.0;
+				animate_f32_to_target(&world->build_alpha, world->build_target_alpha, delta_t, 15.0);
+				bool build_enabled = world->build_target_alpha == 1.0;
 
-						Sprite *sprite = get_sprite_from_sprite_id(get_sprite_id_from_entity_type(entity_type));
-						xform 		   = m4_translate(xform, v3(-get_sprite_size(sprite).x/2, -get_sprite_size(sprite).y/2, 0));
+				// Draw a row of icons for building structures
+				if (world->build_target_alpha) {
+#if 0
+					Matrix4 xform = m4_scalar(1.0);
+					xform = m4_translate(xform, v3(100, 100, 0));
+					draw_rect_xform(xform, v2(40, 20), COLOR_WHITE);
+#endif
+					int build_count = 3;
+					Vector2 element_size = v2(16, 16);
+					float32 padding = 4.0;
+					float32 total_box_width = element_size.x * build_count;
+					total_box_width += padding * (build_count-1);
 
-						draw_image_xform(sprite->image, xform, get_sprite_size(sprite), COLOR_WHITE);
-
-						//draw_text_xform(font, STR("5"), FONT_HEIGHT, element_bottom_right_xform, v2(0.1, 0.1), COLOR_WHITE);
-
-						// Tooltip
-						if (is_element_hovered == 1.0f)
-						{
-							Draw_Quad screen_quad = quad_in_screen_space(*quad);
-							Range2f screen_range  = quad_to_range(&screen_quad);
-							Vector2 element_mid   = range2f_get_mid(screen_range);
-
-							Vector2 tooltip_size  = v2(30, 12.5);
-							Matrix4 tooltip_xform = m4_scalar(1.0);
-
-							//float32 tooltip_start_offset = (-element_size.x*0.5) - (element_size.x*element_count);
-
-							tooltip_xform = m4_translate(tooltip_xform, v3(element_mid.x, element_mid.y, 0));
-							tooltip_xform = m4_translate(tooltip_xform, v3(-element_size.x*0.5, -tooltip_size.y - element_size.y*0.5, 0));
-
-							draw_rect_xform(tooltip_xform, tooltip_size, INVENTORY_BG_COL);
-
-		
-							Vector2 draw_pos = element_mid;
-							{
-								string title = get_entity_type_name(entity_type);
-								Gfx_Text_Metrics metrics = measure_text(font, title, FONT_HEIGHT, v2(0.1, 0.1));
-								draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
-								draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(-0.5, -0.5)));
-								
-								// NOTE: Use this offset in the below draw_pos if you want the text centred
-								// in the middle of the tooltip box.
-								//float x_offset = (tooltip_size.x * 0.5) - (element_size.x * 0.5);
-								draw_pos = v2_add(draw_pos, v2(0, (-element_size.y*0.5)-4.0));
-
-								draw_text(font, title, FONT_HEIGHT, draw_pos, v2(0.1, 0.1), COLOR_WHITE);
-							}
-							{
-								string text = STR("x%i");
-								text = sprint(get_temporary_allocator(), text, resource->count);
-
-								Gfx_Text_Metrics metrics = measure_text(font, text, FONT_HEIGHT, v2(0.1, 0.1));
-								draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
-								draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(0, -1.5)));
-								
-								draw_text(font, text, FONT_HEIGHT, draw_pos, v2(0.1, 0.1), COLOR_WHITE);
-							}
-						}
-
-						element_count++;
+					float32 build_box_start_pos = (width*0.5) - (total_box_width*0.5);
+					for (int box_index = 0; box_index < build_count; box_index++) {
+						float32 element_offset = box_index * (element_size.x + padding);
+						Matrix4 xform = m4_scalar(1.0);
+						xform = m4_translate(xform, v3(build_box_start_pos + element_offset, 0, 0));
+						draw_rect_xform(xform, element_size, COLOR_WHITE);
 					}
 				}
 			}
 		}
 
+		// TODO: @ship get rid of this esc key functionality
 		if (is_key_just_pressed(KEY_ESCAPE)) {
 			window.should_close = true;
 		}
