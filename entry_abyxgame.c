@@ -162,7 +162,6 @@ typedef struct Resource_Data {
 } Resource_Data;
 
 // :build
-#if 0
 typedef enum Build_ID{
 	BuildID_none,
 	BuildID_oven,
@@ -170,10 +169,10 @@ typedef enum Build_ID{
 	BuildID_count,
 } Build_ID;
 typedef struct Build_Data {
-	// TODO: fill this bad boy up
+	Entity_Type to_build;
+	Sprite_ID sprite_id;
 } Build_Data;
 Build_Data buildings[BuildID_count];
-#endif
 
 // :ux
 typedef enum UX_State {
@@ -325,6 +324,12 @@ int entry(int argc, char **argv) {
 	Gfx_Font *font = load_font_from_disk(STR("C:/windows/fonts/arial.ttf"), get_heap_allocator());
 	assert(font, "Failed loading font arial.ttf, %d", GetLastError());
 	#define FONT_HEIGHT 48
+
+	{
+		//buildings[0] = ;
+		buildings[BuildID_oven] =  (Build_Data){ .to_build=EntityType_oven,  .sprite_id=SpriteID_oven  };
+		buildings[BuildID_alter] = (Build_Data){ .to_build=EntityType_alter, .sprite_id=SpriteID_alter };
+	}
 
 	// Resource testing
 	// TODO: @ship get rid of this debug code
@@ -679,18 +684,23 @@ int entry(int argc, char **argv) {
 					xform = m4_translate(xform, v3(100, 100, 0));
 					draw_rect_xform(xform, v2(40, 20), COLOR_WHITE);
 #endif
-					int build_count = 3;
+					int build_count = BuildID_count - 1;
 					Vector2 element_size = v2(16, 16);
 					float32 padding = 4.0;
 					float32 total_box_width = element_size.x * build_count;
 					total_box_width += padding * (build_count-1);
 
 					float32 build_box_start_pos = (width*0.5) - (total_box_width*0.5);
-					for (int box_index = 0; box_index < build_count; box_index++) {
-						float32 element_offset = box_index * (element_size.x + padding);
+					for (Build_ID build_id = 1; build_id < BuildID_count; build_id++) {
+						float32 element_offset = (build_id-1) * (element_size.x + padding);
 						Matrix4 xform = m4_scalar(1.0);
-						xform = m4_translate(xform, v3(build_box_start_pos + element_offset, 0, 0));
-						draw_rect_xform(xform, element_size, COLOR_WHITE);
+						xform = m4_translate(xform, v3(build_box_start_pos + element_offset, 10, 0));
+
+						Build_Data *building = &buildings[build_id];
+						Sprite *sprite = get_sprite_from_sprite_id(building->sprite_id);
+						// TODO: get this drawing the sprite with a correct stretch
+						draw_image_xform(sprite->image, xform, element_size, COLOR_WHITE);
+						//draw_rect_xform(xform, element_size, COLOR_WHITE);
 					}
 				}
 			}
