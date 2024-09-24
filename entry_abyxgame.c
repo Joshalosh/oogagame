@@ -161,40 +161,44 @@ typedef struct Resource_Data {
 	int count;
 } Resource_Data;
 
-// :build
-typedef enum Build_ID{
-	BuildID_none,
-	BuildID_oven,
-	BuildID_alter,
-	BuildID_count,
-} Build_ID;
-typedef struct Build_Data {
-	Entity_Type to_build;
+// :structure
+typedef enum Structure_ID{
+	StructureID_none,
+	StructureID_oven,
+	StructureID_alter,
+	StructureID_count,
+} Structure_ID;
+typedef struct Structure_Data {
+	Entity_Type entity_type;
 	Sprite_ID sprite_id;
-} Build_Data;
-Build_Data buildings[BuildID_count];
+} Structure_Data;
+Structure_Data structures[StructureID_count];
 
-// :ux
-typedef enum UX_State {
-	UXState_none,
-	UXState_inventory,
-	UXState_build,
-} UX_State;
+// :mode
+typedef enum Game_Mode {
+	GameMode_none,
+	GameMode_inventory,
+	GameMode_structures,
+	GameMode_place,
+} Game_Mode;
 
 #define MAX_ENTITY_COUNT 1024
 typedef struct World {
-	Entity entities[MAX_ENTITY_COUNT];
+	Entity 		  entities[MAX_ENTITY_COUNT];
 	Resource_Data inventory[EntityType_count];
-	UX_State ux_state;
-	float inventory_alpha;
-	float inventory_target_alpha;
-	float build_alpha;
-	float build_target_alpha;
+	Game_Mode 	  game_mode;
+	float 		  inventory_alpha;
+	float  		  inventory_target_alpha;
+	float 		  structure_alpha;
+	float 		  structure_target_alpha;
+	Structure_ID  structure_id;
 } World;
 World *world = 0;
 
 typedef struct World_Frame {
 	Entity *selected_entity;
+	Matrix4 projection_space;
+	Matrix4 view_space;
 } World_Frame;
 World_Frame world_frame;
 
@@ -326,9 +330,9 @@ int entry(int argc, char **argv) {
 	#define FONT_HEIGHT 48
 
 	{
-		//buildings[0] = ;
-		buildings[BuildID_oven] =  (Build_Data){ .to_build=EntityType_oven,  .sprite_id=SpriteID_oven  };
-		buildings[BuildID_alter] = (Build_Data){ .to_build=EntityType_alter, .sprite_id=SpriteID_alter };
+		//structures[0] = ;
+		structures[StructureID_oven] =  (Structure_Data){ .entity_type=EntityType_oven,  .sprite_id=SpriteID_oven  };
+		structures[StructureID_alter] = (Structure_Data){ .entity_type=EntityType_alter, .sprite_id=SpriteID_alter };
 	}
 
 	// Resource testing
@@ -381,8 +385,8 @@ int entry(int argc, char **argv) {
 		last_time = now;
         os_update(); 
 
-		draw_frame.projection = m4_make_orthographic_projection(window.width  * -0.5, window.width  * 0.5, 
-																window.height * -0.5, window.height * 0.5, -1, 10);
+		world_frame.projection_space = m4_make_orthographic_projection(window.width  * -0.5, window.width  * 0.5, 
+																	   window.height * -0.5, window.height * 0.5, -1, 10);
 		//
 		// CAMERA
 		//
@@ -390,10 +394,13 @@ int entry(int argc, char **argv) {
 			Vector2 target_pos = player_entity->pos;
 			animate_v2_to_target(&camera_pos, target_pos, delta_t, 15.0f);
 
-			draw_frame.camera_xform = m4_make_scale(v3(1, 1, 1));
-			draw_frame.camera_xform = m4_mul(draw_frame.camera_xform, m4_make_translation(v3(camera_pos.x, camera_pos.y, 0)));
-			draw_frame.camera_xform = m4_mul(draw_frame.camera_xform, m4_make_scale(v3(1.0/zoom, 1.0/zoom, 1.0)));
+			world_frame.view_space = m4_make_scale(v3(1, 1, 1));
+			world_frame.view_space = m4_mul(world_frame.view_space, m4_make_translation(v3(camera_pos.x, camera_pos.y, 0)));
+			world_frame.view_space = m4_mul(world_frame.view_space, m4_make_scale(v3(1.0/zoom, 1.0/zoom, 1.0)));
 		}
+
+		draw_frame.projection   = world_frame.projection_space;
+		draw_frame.camera_xform = world_frame.view_space;
 
 		//
 		// Mouse position in world space test
@@ -537,6 +544,7 @@ int entry(int argc, char **argv) {
 		// Draw UI
 		//
 		{
+			// Screen space
 			float width  = 240.0;
 			float height = 135.0;
 
@@ -547,10 +555,10 @@ int entry(int argc, char **argv) {
 			{
 				if (is_key_just_pressed(KEY_TAB)) {
 					consume_key_just_pressed(KEY_TAB);
-					world->ux_state = world->ux_state == UXState_inventory ? UXState_none : UXState_inventory;
+					world->game_mode = world->game_mode == GameMode_inventory ? GameMode_none : GameMode_inventory;
 				}
 
-				world->inventory_target_alpha = world->ux_state == UXState_inventory ? 1.0 : 0.0;
+				world->inventory_target_alpha = world->game_mode == GameMode_inventory ? 1.0 : 0.0;
 				animate_f32_to_target(&world->inventory_alpha, world->inventory_target_alpha, delta_t, 15.0);
 
 				bool inventory_enabled        = world->inventory_target_alpha == 1.0;
@@ -666,41 +674,66 @@ int entry(int argc, char **argv) {
 				}
 			}
 
-			// Building UI
+			// Structures UI
 			{
 				if (is_key_just_pressed('C')) {
 					consume_key_just_pressed('C');
-					world->ux_state = world->ux_state == UXState_build ? UXState_none : UXState_build;
+					world->game_mode = world->game_mode == GameMode_structures ? GameMode_none : GameMode_structures;
 				}
 
-				world->build_target_alpha = world->ux_state == UXState_build ? 1.0 : 0.0;
-				animate_f32_to_target(&world->build_alpha, world->build_target_alpha, delta_t, 15.0);
-				bool build_enabled = world->build_target_alpha == 1.0;
+				world->structure_target_alpha = world->game_mode == GameMode_structures ? 1.0 : 0.0;
+				animate_f32_to_target(&world->structure_alpha, world->structure_target_alpha, delta_t, 15.0);
+				bool structures_enabled = world->structure_target_alpha == 1.0;
 
 				// Draw a row of icons for building structures
-				if (world->build_target_alpha) {
-#if 0
-					Matrix4 xform = m4_scalar(1.0);
-					xform = m4_translate(xform, v3(100, 100, 0));
-					draw_rect_xform(xform, v2(40, 20), COLOR_WHITE);
-#endif
-					int build_count = BuildID_count - 1;
+				if (world->structure_target_alpha) {
+					int structure_count = StructureID_count - 1;
 					Vector2 element_size = v2(16, 16);
 					float32 padding = 4.0;
-					float32 total_box_width = element_size.x * build_count;
-					total_box_width += padding * (build_count-1);
+					float32 total_box_width = element_size.x * structure_count;
+					total_box_width += padding * (structure_count-1);
 
-					float32 build_box_start_pos = (width*0.5) - (total_box_width*0.5);
-					for (Build_ID build_id = 1; build_id < BuildID_count; build_id++) {
-						float32 element_offset = (build_id-1) * (element_size.x + padding);
+					float32 structure_box_start_pos = (width*0.5) - (total_box_width*0.5);
+					for (Structure_ID structure_id = 1; structure_id < StructureID_count; structure_id++) {
+						float32 element_offset = (structure_id-1) * (element_size.x + padding);
 						Matrix4 xform = m4_scalar(1.0);
-						xform = m4_translate(xform, v3(build_box_start_pos + element_offset, 10, 0));
+						xform = m4_translate(xform, v3(structure_box_start_pos + element_offset, 10, 0));
 
-						Build_Data *building = &buildings[build_id];
-						Sprite *sprite = get_sprite_from_sprite_id(building->sprite_id);
+						Structure_Data *structure = &structures[structure_id];
+						Sprite *sprite = get_sprite_from_sprite_id(structure->sprite_id);
+						
 						// TODO: get this drawing the sprite with a correct stretch
-						draw_image_xform(sprite->image, xform, element_size, COLOR_WHITE);
-						//draw_rect_xform(xform, element_size, COLOR_WHITE);
+						Draw_Quad *quad = draw_image_xform(sprite->image, xform, element_size, COLOR_WHITE);
+						Range2f structure_box = quad_to_range(quad);
+						if (range2f_contains(structure_box, mouse_pos_in_ndc())) {
+						// TODO: Follow mouse around a lil on hover
+
+						// NOTE: When click go into place mode
+						if(is_key_just_pressed(MOUSE_BUTTON_LEFT)) {
+							consume_key_just_pressed(MOUSE_BUTTON_LEFT);
+							world->structure_id = structure_id;
+							world->game_mode 	= GameMode_place;
+						}
+						}
+					}
+				}
+
+				// Placement mode
+				{
+					if (world->game_mode == GameMode_place) {
+						// TODO: Put this into a macro
+						Matrix4 original_view_space 	  = draw_frame.camera_xform;
+						Matrix4 original_projection_space = draw_frame.projection;
+						draw_frame.camera_xform 		  = world_frame.view_space;
+						draw_frame.projection 			  = world_frame.projection_space;
+						{
+							//mouse_world_pos
+							//Structure_Data *structure = get_structure_data(world->structure_id)
+
+							//draw_image();
+						}
+						draw_frame.camera_xform = original_view_space;
+						draw_frame.projection 	= original_projection_space;
 					}
 				}
 			}
