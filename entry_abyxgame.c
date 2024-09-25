@@ -8,6 +8,9 @@
 #define PICKUP_RADIUS 	 40.0
 #define ROCK_HP 	     3
 #define TREE_HP 	  	 3
+#define FONT_HEIGHT      48
+#define SCREEN_WIDTH     240.0
+#define SCREEN_HEIGHT    135.0
 
 //
 // Generic Utilities
@@ -173,6 +176,10 @@ typedef struct Structure_Data {
 	Sprite_ID sprite_id;
 } Structure_Data;
 Structure_Data structures[StructureID_count];
+Structure_Data *get_structure_from_structure_id(Structure_ID id) {
+	Structure_Data *result = &structures[id];
+	return result;
+}
 
 // :mode
 typedef enum Game_Mode {
@@ -293,6 +300,206 @@ Vector2 mouse_screen_to_world() {
 	return result;
 }
 
+void set_screen_space() {
+	draw_frame.camera_xform = m4_scalar(1.0);
+	draw_frame.projection 	= m4_make_orthographic_projection(0.0, SCREEN_WIDTH, 0.0, SCREEN_HEIGHT, -1, 10);
+}
+
+void set_world_space() {
+	draw_frame.camera_xform = world_frame.view_space;
+	draw_frame.projection 	= world_frame.projection_space;
+}
+
+void do_ui(Gfx_Font *font, float64 delta_t) {
+	set_screen_space();
+	// Inventory UI
+	{
+		if (is_key_just_pressed(KEY_TAB)) {
+			consume_key_just_pressed(KEY_TAB);
+			world->game_mode = world->game_mode == GameMode_inventory ? GameMode_none : GameMode_inventory;
+		}
+
+		world->inventory_target_alpha = world->game_mode == GameMode_inventory ? 1.0 : 0.0;
+		animate_f32_to_target(&world->inventory_alpha, world->inventory_target_alpha, delta_t, 15.0);
+
+		bool inventory_enabled        = world->inventory_target_alpha == 1.0;
+		if (world->inventory_target_alpha != 0.0)
+		{
+			Vector2 element_size 		   = v2(16, 16);
+			float padding 				   = 4.0;
+
+			#define INVENTORY_BAR_COUNT 8
+
+			float inventory_width = INVENTORY_BAR_COUNT * element_size.x;
+
+			float inventory_pos_x = (SCREEN_WIDTH/2) - (inventory_width/2);
+			float inventory_pos_y = 30.0f;
+			
+			// Inventory bar rendering
+			{
+				Matrix4 xform = m4_scalar(1.0);
+				xform		  = m4_translate(xform, v3(inventory_pos_x, inventory_pos_y, 0));
+				draw_rect_xform(xform, v2(inventory_width, element_size.y), INVENTORY_BG_COL);
+			}
+
+			int element_count = 0;
+			for (int entity_type = 0; entity_type < EntityType_count; entity_type++) {
+				Resource_Data *resource = &world->inventory[entity_type];
+				if (resource->count > 0) {
+					float new_element_offset = element_count * element_size.x; 
+
+					Matrix4 xform = m4_scalar(1.0);
+					xform		  = m4_translate(xform, v3(inventory_pos_x + new_element_offset, inventory_pos_y, 0));
+
+					float is_element_hovered = 0.0;
+
+					Draw_Quad *quad = draw_rect_xform(xform, element_size, v4(1, 1, 1, 0.2));
+					Range2f element_range = quad_to_range(quad);
+					Vector2 mouse_ndc_pos = mouse_pos_in_ndc();
+					if (inventory_enabled && range2f_contains(element_range, mouse_ndc_pos)) {
+						is_element_hovered = 1.0;
+					}
+
+					Matrix4 element_bottom_right_xform = xform;
+
+					xform 		   = m4_translate(xform, v3(element_size.x/2, element_size.y/2, 0));
+					if (is_element_hovered == 1.0) {
+						{
+							// TODO: Juice dat inventory selection yo 
+							float scale_adjust = 0.3;//0.1 * sin_bob(now, 20.0f);
+							xform			   = m4_scale(xform, v3(1+scale_adjust, 1+scale_adjust, 0));
+						}
+#if 0
+						{
+							// NOTE: could also rotate?
+							float32 rotate_adjust = (((PI32/4)) * sin_bob(now, 1.0f)) - PI32/4;
+							xform 				  = m4_rotate_z(xform, rotate_adjust);
+						}
+#endif
+					}
+
+					Sprite *sprite = get_sprite_from_sprite_id(get_sprite_id_from_entity_type(entity_type));
+					xform 		   = m4_translate(xform, v3(-get_sprite_size(sprite).x/2, -get_sprite_size(sprite).y/2, 0));
+
+					draw_image_xform(sprite->image, xform, get_sprite_size(sprite), COLOR_WHITE);
+
+					//draw_text_xform(font, STR("5"), FONT_HEIGHT, element_bottom_right_xform, v2(0.1, 0.1), COLOR_WHITE);
+
+					// Tooltip
+					if (is_element_hovered == 1.0f)
+					{
+						Draw_Quad screen_quad = quad_in_screen_space(*quad);
+						Range2f screen_range  = quad_to_range(&screen_quad);
+						Vector2 element_mid   = range2f_get_mid(screen_range);
+
+						Vector2 tooltip_size  = v2(30, 12.5);
+						Matrix4 tooltip_xform = m4_scalar(1.0);
+
+						//float32 tooltip_start_offset = (-element_size.x*0.5) - (element_size.x*element_count);
+
+						tooltip_xform = m4_translate(tooltip_xform, v3(element_mid.x, element_mid.y, 0));
+						tooltip_xform = m4_translate(tooltip_xform, v3(-element_size.x*0.5, -tooltip_size.y - element_size.y*0.5, 0));
+
+						draw_rect_xform(tooltip_xform, tooltip_size, INVENTORY_BG_COL);
+
+	
+						Vector2 draw_pos = element_mid;
+						{
+							string title = get_entity_type_name(entity_type);
+							Gfx_Text_Metrics metrics = measure_text(font, title, FONT_HEIGHT, v2(0.1, 0.1));
+							draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
+							draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(-0.5, -0.5)));
+							
+							// NOTE: Use this offset in the below draw_pos if you want the text centred
+							// in the middle of the tooltip box.
+							//float x_offset = (tooltip_size.x * 0.5) - (element_size.x * 0.5);
+							draw_pos = v2_add(draw_pos, v2(0, (-element_size.y*0.5)-4.0));
+
+							draw_text(font, title, FONT_HEIGHT, draw_pos, v2(0.1, 0.1), COLOR_WHITE);
+						}
+						{
+							string text = STR("x%i");
+							text = sprint(get_temporary_allocator(), text, resource->count);
+
+							Gfx_Text_Metrics metrics = measure_text(font, text, FONT_HEIGHT, v2(0.1, 0.1));
+							draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
+							draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(0, -1.5)));
+							
+							draw_text(font, text, FONT_HEIGHT, draw_pos, v2(0.1, 0.1), COLOR_WHITE);
+						}
+					}
+
+					element_count++;
+				}
+			}
+		}
+	}
+
+	// Structures UI
+	{
+		if (is_key_just_pressed('C')) {
+			consume_key_just_pressed('C');
+			world->game_mode = world->game_mode == GameMode_structures ? GameMode_none : GameMode_structures;
+		}
+
+		world->structure_target_alpha = world->game_mode == GameMode_structures ? 1.0 : 0.0;
+		animate_f32_to_target(&world->structure_alpha, world->structure_target_alpha, delta_t, 15.0);
+		bool structures_enabled = world->structure_target_alpha == 1.0;
+
+		// Draw a row of icons for building structures
+		if (world->structure_target_alpha) {
+			int structure_count = StructureID_count - 1;
+			Vector2 element_size = v2(16, 16);
+			float32 padding = 4.0;
+			float32 total_box_width = element_size.x * structure_count;
+			total_box_width += padding * (structure_count-1);
+
+			float32 structure_box_start_pos = (SCREEN_WIDTH*0.5) - (total_box_width*0.5);
+			for (Structure_ID structure_id = 1; structure_id < StructureID_count; structure_id++) {
+				float32 element_offset = (structure_id-1) * (element_size.x + padding);
+				Matrix4 xform = m4_scalar(1.0);
+				xform = m4_translate(xform, v3(structure_box_start_pos + element_offset, 10, 0));
+
+				Structure_Data *structure = &structures[structure_id];
+				Sprite *sprite = get_sprite_from_sprite_id(structure->sprite_id);
+				
+				// TODO: get this drawing the sprite with a correct stretch
+				Draw_Quad *quad = draw_image_xform(sprite->image, xform, element_size, COLOR_WHITE);
+				Range2f structure_box = quad_to_range(quad);
+				if (range2f_contains(structure_box, mouse_pos_in_ndc())) {
+				// TODO: Follow mouse around a lil on hover
+
+				// NOTE: When click go into place mode
+				if(is_key_just_pressed(MOUSE_BUTTON_LEFT)) {
+					consume_key_just_pressed(MOUSE_BUTTON_LEFT);
+					world->structure_id = structure_id;
+					world->game_mode 	= GameMode_place;
+				}
+				}
+			}
+		}
+
+		// Placement mode
+		{
+			if (world->game_mode == GameMode_place) {
+				set_world_space();
+				{
+					Vector2 mouse_world_pos = mouse_screen_to_world();
+					Structure_Data *structure = get_structure_from_structure_id(world->structure_id);
+					Sprite *sprite = get_sprite_from_sprite_id(structure->sprite_id);
+					Matrix4 xform = m4_scalar(1.0);
+					xform = m4_translate(xform, v3(mouse_world_pos.x, mouse_world_pos.y, 0));
+					xform = m4_translate(xform, v3(-get_sprite_size(sprite).x * 0.5, 0, 0));
+
+					draw_image_xform(sprite->image, xform, get_sprite_size(sprite), v4(1, 1, 1, 0.2));
+				}
+				set_screen_space();
+			}
+		}
+	}
+	set_world_space();
+}
+
 int entry(int argc, char **argv) {
 	
 	// This is how we (optionally) configure the window.
@@ -327,7 +534,6 @@ int entry(int argc, char **argv) {
 
 	Gfx_Font *font = load_font_from_disk(STR("C:/windows/fonts/arial.ttf"), get_heap_allocator());
 	assert(font, "Failed loading font arial.ttf, %d", GetLastError());
-	#define FONT_HEIGHT 48
 
 	{
 		//structures[0] = ;
@@ -408,6 +614,8 @@ int entry(int argc, char **argv) {
 		Vector2 mouse_world_pos = mouse_screen_to_world();
 		int mouse_tile_x  = world_pos_to_tile_pos(mouse_world_pos.x);
 		int mouse_tile_y  = world_pos_to_tile_pos(mouse_world_pos.y);
+
+		do_ui(font, delta_t);
 
 		float half_tile_width   = (float)TILE_WIDTH   * 0.5;
 		float half_tile_height  = (float)TILE_HEIGHT  * 0.5;
@@ -540,204 +748,6 @@ int entry(int argc, char **argv) {
 			}
 		}
 		
-		//
-		// Draw UI
-		//
-		{
-			// Screen space
-			float width  = 240.0;
-			float height = 135.0;
-
-			draw_frame.camera_xform = m4_scalar(1.0);
-			draw_frame.projection 	= m4_make_orthographic_projection(0.0, width, 0.0, height, -1, 10);
-
-			// Inventory UI
-			{
-				if (is_key_just_pressed(KEY_TAB)) {
-					consume_key_just_pressed(KEY_TAB);
-					world->game_mode = world->game_mode == GameMode_inventory ? GameMode_none : GameMode_inventory;
-				}
-
-				world->inventory_target_alpha = world->game_mode == GameMode_inventory ? 1.0 : 0.0;
-				animate_f32_to_target(&world->inventory_alpha, world->inventory_target_alpha, delta_t, 15.0);
-
-				bool inventory_enabled        = world->inventory_target_alpha == 1.0;
-				if (world->inventory_target_alpha != 0.0)
-				{
-					Vector2 element_size 		   = v2(16, 16);
-					float padding 				   = 4.0;
-
-					#define INVENTORY_BAR_COUNT 8
-
-					float inventory_width = INVENTORY_BAR_COUNT * element_size.x;
-
-					float inventory_pos_x = (width/2) - (inventory_width/2);
-					float inventory_pos_y = 30.0f;
-					
-					// Inventory bar rendering
-					{
-						Matrix4 xform = m4_scalar(1.0);
-						xform		  = m4_translate(xform, v3(inventory_pos_x, inventory_pos_y, 0));
-						draw_rect_xform(xform, v2(inventory_width, element_size.y), INVENTORY_BG_COL);
-					}
-
-					int element_count = 0;
-					for (int entity_type = 0; entity_type < EntityType_count; entity_type++) {
-						Resource_Data *resource = &world->inventory[entity_type];
-						if (resource->count > 0) {
-							float new_element_offset = element_count * element_size.x; 
-
-							Matrix4 xform = m4_scalar(1.0);
-							xform		  = m4_translate(xform, v3(inventory_pos_x + new_element_offset, inventory_pos_y, 0));
-
-							float is_element_hovered = 0.0;
-
-							Draw_Quad *quad = draw_rect_xform(xform, element_size, v4(1, 1, 1, 0.2));
-							Range2f element_range = quad_to_range(quad);
-							Vector2 mouse_ndc_pos = mouse_pos_in_ndc();
-							if (inventory_enabled && range2f_contains(element_range, mouse_ndc_pos)) {
-								is_element_hovered = 1.0;
-							}
-
-							Matrix4 element_bottom_right_xform = xform;
-
-							xform 		   = m4_translate(xform, v3(element_size.x/2, element_size.y/2, 0));
-							if (is_element_hovered == 1.0) {
-								{
-									// TODO: Juice dat inventory selection yo 
-									float scale_adjust = 0.3;//0.1 * sin_bob(now, 20.0f);
-									xform			   = m4_scale(xform, v3(1+scale_adjust, 1+scale_adjust, 0));
-								}
-		#if 0
-								{
-									// NOTE: could also rotate?
-									float32 rotate_adjust = (((PI32/4)) * sin_bob(now, 1.0f)) - PI32/4;
-									xform 				  = m4_rotate_z(xform, rotate_adjust);
-								}
-		#endif
-							}
-
-							Sprite *sprite = get_sprite_from_sprite_id(get_sprite_id_from_entity_type(entity_type));
-							xform 		   = m4_translate(xform, v3(-get_sprite_size(sprite).x/2, -get_sprite_size(sprite).y/2, 0));
-
-							draw_image_xform(sprite->image, xform, get_sprite_size(sprite), COLOR_WHITE);
-
-							//draw_text_xform(font, STR("5"), FONT_HEIGHT, element_bottom_right_xform, v2(0.1, 0.1), COLOR_WHITE);
-
-							// Tooltip
-							if (is_element_hovered == 1.0f)
-							{
-								Draw_Quad screen_quad = quad_in_screen_space(*quad);
-								Range2f screen_range  = quad_to_range(&screen_quad);
-								Vector2 element_mid   = range2f_get_mid(screen_range);
-
-								Vector2 tooltip_size  = v2(30, 12.5);
-								Matrix4 tooltip_xform = m4_scalar(1.0);
-
-								//float32 tooltip_start_offset = (-element_size.x*0.5) - (element_size.x*element_count);
-
-								tooltip_xform = m4_translate(tooltip_xform, v3(element_mid.x, element_mid.y, 0));
-								tooltip_xform = m4_translate(tooltip_xform, v3(-element_size.x*0.5, -tooltip_size.y - element_size.y*0.5, 0));
-
-								draw_rect_xform(tooltip_xform, tooltip_size, INVENTORY_BG_COL);
-
-			
-								Vector2 draw_pos = element_mid;
-								{
-									string title = get_entity_type_name(entity_type);
-									Gfx_Text_Metrics metrics = measure_text(font, title, FONT_HEIGHT, v2(0.1, 0.1));
-									draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
-									draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(-0.5, -0.5)));
-									
-									// NOTE: Use this offset in the below draw_pos if you want the text centred
-									// in the middle of the tooltip box.
-									//float x_offset = (tooltip_size.x * 0.5) - (element_size.x * 0.5);
-									draw_pos = v2_add(draw_pos, v2(0, (-element_size.y*0.5)-4.0));
-
-									draw_text(font, title, FONT_HEIGHT, draw_pos, v2(0.1, 0.1), COLOR_WHITE);
-								}
-								{
-									string text = STR("x%i");
-									text = sprint(get_temporary_allocator(), text, resource->count);
-
-									Gfx_Text_Metrics metrics = measure_text(font, text, FONT_HEIGHT, v2(0.1, 0.1));
-									draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
-									draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(0, -1.5)));
-									
-									draw_text(font, text, FONT_HEIGHT, draw_pos, v2(0.1, 0.1), COLOR_WHITE);
-								}
-							}
-
-							element_count++;
-						}
-					}
-				}
-			}
-
-			// Structures UI
-			{
-				if (is_key_just_pressed('C')) {
-					consume_key_just_pressed('C');
-					world->game_mode = world->game_mode == GameMode_structures ? GameMode_none : GameMode_structures;
-				}
-
-				world->structure_target_alpha = world->game_mode == GameMode_structures ? 1.0 : 0.0;
-				animate_f32_to_target(&world->structure_alpha, world->structure_target_alpha, delta_t, 15.0);
-				bool structures_enabled = world->structure_target_alpha == 1.0;
-
-				// Draw a row of icons for building structures
-				if (world->structure_target_alpha) {
-					int structure_count = StructureID_count - 1;
-					Vector2 element_size = v2(16, 16);
-					float32 padding = 4.0;
-					float32 total_box_width = element_size.x * structure_count;
-					total_box_width += padding * (structure_count-1);
-
-					float32 structure_box_start_pos = (width*0.5) - (total_box_width*0.5);
-					for (Structure_ID structure_id = 1; structure_id < StructureID_count; structure_id++) {
-						float32 element_offset = (structure_id-1) * (element_size.x + padding);
-						Matrix4 xform = m4_scalar(1.0);
-						xform = m4_translate(xform, v3(structure_box_start_pos + element_offset, 10, 0));
-
-						Structure_Data *structure = &structures[structure_id];
-						Sprite *sprite = get_sprite_from_sprite_id(structure->sprite_id);
-						
-						// TODO: get this drawing the sprite with a correct stretch
-						Draw_Quad *quad = draw_image_xform(sprite->image, xform, element_size, COLOR_WHITE);
-						Range2f structure_box = quad_to_range(quad);
-						if (range2f_contains(structure_box, mouse_pos_in_ndc())) {
-						// TODO: Follow mouse around a lil on hover
-
-						// NOTE: When click go into place mode
-						if(is_key_just_pressed(MOUSE_BUTTON_LEFT)) {
-							consume_key_just_pressed(MOUSE_BUTTON_LEFT);
-							world->structure_id = structure_id;
-							world->game_mode 	= GameMode_place;
-						}
-						}
-					}
-				}
-
-				// Placement mode
-				{
-					if (world->game_mode == GameMode_place) {
-						// TODO: Put this into a macro
-						Matrix4 original_view_space 	  = draw_frame.camera_xform;
-						Matrix4 original_projection_space = draw_frame.projection;
-						draw_frame.camera_xform 		  = world_frame.view_space;
-						draw_frame.projection 			  = world_frame.projection_space;
-						{
-							//mouse_world_pos
-							//Structure_Data *structure = get_structure_data(world->structure_id)
-
-							//draw_image();
-						}
-						draw_frame.camera_xform = original_view_space;
-						draw_frame.projection 	= original_projection_space;
-					}
-				}
-			}
-		}
 
 		// TODO: @ship get rid of this esc key functionality
 		if (is_key_just_pressed(KEY_ESCAPE)) {
@@ -763,11 +773,13 @@ int entry(int argc, char **argv) {
 		
 		//draw_rect(v2(sin(now)*window.width*0.4-60, -60), v2(120, 120), COLOR_RED);
 	
+#if 0
 		Matrix4 rect_xform = m4_scalar(1.0);
 		rect_xform         = m4_translate(rect_xform, v3(world_pos_to_tile_pos(window.width), world_pos_to_tile_pos(-window.height), 0));
 		rect_xform         = m4_rotate_z(rect_xform, (f32)now);
 		rect_xform         = m4_translate(rect_xform, v3(25*-0.5, 25*-0.5, 0));
 		draw_rect_xform(rect_xform, v2(25, 25), COLOR_GREEN);
+#endif
 		
 		gfx_update();
 		seconds_counter += delta_t;
