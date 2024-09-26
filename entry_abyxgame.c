@@ -310,7 +310,7 @@ void set_world_space() {
 	draw_frame.projection 	= world_frame.projection_space;
 }
 
-void do_ui(Gfx_Font *font, float64 delta_t) {
+void draw_ui(Gfx_Font *font, float64 delta_t) {
 	set_screen_space();
 	// Inventory UI
 	{
@@ -615,7 +615,7 @@ int entry(int argc, char **argv) {
 		int mouse_tile_x  = world_pos_to_tile_pos(mouse_world_pos.x);
 		int mouse_tile_y  = world_pos_to_tile_pos(mouse_world_pos.y);
 
-		do_ui(font, delta_t);
+		draw_ui(font, delta_t);
 
 		float half_tile_width   = (float)TILE_WIDTH   * 0.5;
 		float half_tile_height  = (float)TILE_HEIGHT  * 0.5;
