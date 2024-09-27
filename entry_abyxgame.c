@@ -11,6 +11,8 @@
 #define FONT_HEIGHT      48
 #define SCREEN_WIDTH     240.0
 #define SCREEN_HEIGHT    135.0
+#define UI_SORT_LAYER    20
+#define WORLD_SORT_LAYER 10
 
 //
 // Generic Utilities
@@ -206,6 +208,7 @@ typedef struct World_Frame {
 	Entity *selected_entity;
 	Matrix4 projection_space;
 	Matrix4 view_space;
+	bool 	hover_consumed;
 } World_Frame;
 World_Frame world_frame;
 
@@ -241,6 +244,11 @@ void oven_init(Entity *entity) {
 	entity->sprite_id    = SpriteID_oven;
 }
 
+void alter_init(Entity *entity) {
+	entity->type 		 = EntityType_alter;
+	entity->sprite_id    = SpriteID_alter;
+}
+
 void rock_init(Entity *entity) {
 	entity->type 	  	 = EntityType_rock;
 	entity->sprite_id    = SpriteID_rock0;
@@ -269,6 +277,14 @@ void stone_init(Entity *entity) {
 	entity->sprite_id 	 = SpriteID_stone;
 	entity->destructable = false;
 	entity->is_resource  = true;
+}
+
+void entity_init(Entity *entity, Entity_Type type) {
+	switch(type) {
+		case EntityType_oven:  oven_init(entity);  break;
+		case EntityType_alter: alter_init(entity); break;
+		default: log_error("missing entity_init case entry"); break;
+	}
 }
 
 Vector2 mouse_pos_in_ndc() {
@@ -312,6 +328,9 @@ void set_world_space() {
 
 void draw_ui(Gfx_Font *font, float64 delta_t) {
 	set_screen_space();
+
+	push_z_layer(50);
+
 	// Inventory UI
 	{
 		if (is_key_just_pressed(KEY_TAB)) {
@@ -464,10 +483,11 @@ void draw_ui(Gfx_Font *font, float64 delta_t) {
 				Sprite *sprite = get_sprite_from_sprite_id(structure->sprite_id);
 				
 				// TODO: get this drawing the sprite with a correct stretch
-				Draw_Quad *quad = draw_image_xform(sprite->image, xform, element_size, COLOR_WHITE);
+				Draw_Quad *quad = draw_image_xform(sprite->image, xform, element_size, COLOR_RED);
 				Range2f structure_box = quad_to_range(quad);
 				if (range2f_contains(structure_box, mouse_pos_in_ndc())) {
 				// TODO: Follow mouse around a lil on hover
+				world_frame.hover_consumed = true;
 
 				// NOTE: When click go into place mode
 				if(is_key_just_pressed(MOUSE_BUTTON_LEFT)) {
@@ -479,25 +499,41 @@ void draw_ui(Gfx_Font *font, float64 delta_t) {
 			}
 		}
 
-		// Placement mode
+		// :Placement mode
 		{
 			if (world->game_mode == GameMode_place) {
 				set_world_space();
 				{
-					Vector2 mouse_world_pos = mouse_screen_to_world();
 					Structure_Data *structure = get_structure_from_structure_id(world->structure_id);
 					Sprite *sprite = get_sprite_from_sprite_id(structure->sprite_id);
+
+					Vector2 snap_pos = mouse_screen_to_world();
+					snap_pos 		 = round_v2_to_tile(snap_pos);
+
 					Matrix4 xform = m4_scalar(1.0);
-					xform = m4_translate(xform, v3(mouse_world_pos.x, mouse_world_pos.y, 0));
+					xform = m4_translate(xform, v3(snap_pos.x, snap_pos.y, 0));
+
+					// NOTE: This is also changed when rendering all entities so and offset
+					// here is needed to counteract that
+					xform = m4_translate(xform, v3(0, -TILE_WIDTH*0.5, 0));
 					xform = m4_translate(xform, v3(-get_sprite_size(sprite).x * 0.5, 0, 0));
 
 					draw_image_xform(sprite->image, xform, get_sprite_size(sprite), v4(1, 1, 1, 0.2));
+
+					if (is_key_just_pressed(MOUSE_BUTTON_LEFT)) {
+						consume_key_just_pressed(MOUSE_BUTTON_LEFT);
+						Entity *entity = create_entity();
+						entity_init(entity, structure->entity_type);
+						entity->pos = snap_pos;
+						world->game_mode = GameMode_none;
+					}
 				}
 				set_screen_space();
 			}
 		}
 	}
 	set_world_space();
+	pop_z_layer();
 }
 
 int entry(int argc, char **argv) {
@@ -591,10 +627,13 @@ int entry(int argc, char **argv) {
 		last_time = now;
         os_update(); 
 
+		// :update
+		draw_frame.enable_z_sorting = true;
+
 		world_frame.projection_space = m4_make_orthographic_projection(window.width  * -0.5, window.width  * 0.5, 
 																	   window.height * -0.5, window.height * 0.5, -1, 10);
 		//
-		// CAMERA
+		// :CAMERA
 		//
 		{
 			Vector2 target_pos = player_entity->pos;
@@ -604,9 +643,8 @@ int entry(int argc, char **argv) {
 			world_frame.view_space = m4_mul(world_frame.view_space, m4_make_translation(v3(camera_pos.x, camera_pos.y, 0)));
 			world_frame.view_space = m4_mul(world_frame.view_space, m4_make_scale(v3(1.0/zoom, 1.0/zoom, 1.0)));
 		}
-
-		draw_frame.projection   = world_frame.projection_space;
-		draw_frame.camera_xform = world_frame.view_space;
+		set_world_space();
+		push_z_layer(WORLD_SORT_LAYER);
 
 		//
 		// Mouse position in world space test
@@ -617,10 +655,8 @@ int entry(int argc, char **argv) {
 
 		draw_ui(font, delta_t);
 
-		float half_tile_width   = (float)TILE_WIDTH   * 0.5;
-		float half_tile_height  = (float)TILE_HEIGHT  * 0.5;
-
-		{
+		// :select entity
+		if (!world_frame.hover_consumed) {
 			f32 current_selection_distance = INFINITY;
 			for (int i = 0; i < MAX_ENTITY_COUNT; i++) {
 				Entity *entity = &world->entities[i];
@@ -647,6 +683,8 @@ int entry(int argc, char **argv) {
 		// Tile grid shenanigans
 		//
 		{
+			float half_tile_width   = (float)TILE_WIDTH   * 0.5;
+			float half_tile_height  = (float)TILE_HEIGHT  * 0.5;
 			int player_tile_x  		= world_pos_to_tile_pos(player_entity->pos.x);
 			int player_tile_y  		= world_pos_to_tile_pos(player_entity->pos.y);
 			int tile_radius_x  		= 40;
@@ -734,7 +772,7 @@ int entry(int argc, char **argv) {
 						if (entity->is_resource) {
 							rect_xform = m4_translate(rect_xform, v3(0, 2.0*sin_bob(now, 5.0f), 0));
 						} 
-						rect_xform 			= m4_translate(rect_xform, v3(0, -half_tile_height, 0));
+						rect_xform 			= m4_translate(rect_xform, v3(0, -TILE_HEIGHT*0.5, 0));
 						rect_xform          = m4_translate(rect_xform, v3(entity->pos.x, entity->pos.y, 0));
 						rect_xform          = m4_translate(rect_xform, v3(sprite->image->width * -0.5, 0, 0));
 
