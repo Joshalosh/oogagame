@@ -13,6 +13,7 @@
 #define SCREEN_HEIGHT    135.0
 #define UI_SORT_LAYER    20
 #define WORLD_SORT_LAYER 10
+#define MAX_INGREDIENTS  8
 
 //
 // Generic Utilities
@@ -122,37 +123,36 @@ Vector2 get_sprite_size(Sprite *sprite) {
 	return result;
 }
 
+typedef enum Resource_ID {
+	ResourceID_none,
+	ResourceID_stone,
+	ResourceID_wood,
+	ResourceID_count,
+} Resource_ID;
+
+typedef struct Inventory_Resource_Data {
+	int count;
+} Inventory_Resource_Data;
+
+typedef struct Resource_Count {
+
+} Resource_Count;
+
 typedef enum Entity_Type {
 	EntityType_none,
 	EntityType_tree,
 	EntityType_rock,
 	EntityType_player,
-	EntityType_stone,
-	EntityType_wood,
+	EntityType_resource,
 	EntityType_oven,
 	EntityType_alter,
 	EntityType_count,
 } Entity_Type;
 
-Sprite_ID get_sprite_id_from_entity_type(Entity_Type type) {
-	switch(type) {
-		case EntityType_stone: return SpriteID_stone; break;
-		case EntityType_wood:  return SpriteID_wood;  break;
-		default: return 0;
-	}
-}
-
-string get_entity_type_name(Entity_Type type) {
-	switch(type) {
-		case EntityType_stone: return STR("Stone"); break;
-		case EntityType_wood:  return STR("Wood");  break;
-		default: return STR("No name found");
-	}
-}
-
 typedef struct Entity {
 	bool is_valid;
 	Entity_Type type;
+	Resource_ID resource_id;
 	Vector2 pos;
 	//bool render_sprite;
 	Sprite_ID sprite_id;
@@ -163,8 +163,28 @@ typedef struct Entity {
 
 // :resource
 typedef struct Resource_Data {
-	int count;
+	string name;
+	Entity_Type type;
+	Resource_Count recipes[MAX_INGREDIENTS];
 } Resource_Data;
+Resource_Data resource_data[ResourceID_count];
+Resource_Data get_resource_from_id(Resource_ID id) {
+	Resource_Data result = resource_data[id];
+	return result;
+}
+
+#if 0
+int get_recipe_count(Resource_Data resource_data) {
+	int count = 0;
+	for (int index = 0; index < MAX_INGREDIENTS; index++) {
+		if (recipe_data.recipes[index].id == 0) {
+			break;
+		}
+		count += 1;
+	}
+	return count;
+}
+#endif
 
 // :structure
 typedef enum Structure_ID{
@@ -194,7 +214,7 @@ typedef enum Game_Mode {
 #define MAX_ENTITY_COUNT 1024
 typedef struct World {
 	Entity 		  entities[MAX_ENTITY_COUNT];
-	Resource_Data inventory[EntityType_count];
+	Inventory_Resource_Data inventory[ResourceID_count];
 	Game_Mode 	  game_mode;
 	float 		  inventory_alpha;
 	float  		  inventory_target_alpha;
@@ -211,6 +231,22 @@ typedef struct World_Frame {
 	bool 	hover_consumed;
 } World_Frame;
 World_Frame world_frame;
+
+Sprite_ID get_sprite_id_from_resource_id(Resource_ID id) {
+	switch (id) {
+		case ResourceID_wood:  return SpriteID_wood;  break;		
+		case ResourceID_stone: return SpriteID_stone; break;		
+		default: 			   return SpriteID_none;  break;
+	}
+}
+
+string entity_type_name(Entity_Type type) {
+	switch (type) {
+		case EntityType_oven:  return STR("Oven");  break;
+		case EntityType_alter: return STR("Alter"); break;
+		default: 			   return STR("None"); break;
+	}
+}
 
 Entity *create_entity() {
 	Entity *found_entity = 0;
@@ -265,19 +301,13 @@ void tree_init(Entity *entity) {
 	entity->is_resource  = false;
 }
 
-void wood_init(Entity *entity) {
-	entity->type 	   	 = EntityType_wood;
-	entity->sprite_id 	 = SpriteID_wood;
-	entity->destructable = false;
+void resource_init(Entity *entity, Resource_ID id) {
+	entity->type 		 = EntityType_resource;
+	entity->sprite_id    = get_sprite_id_from_resource_id(id);
 	entity->is_resource  = true;
+	entity->resource_id  = id;
 }
 
-void stone_init(Entity *entity) {
-	entity->type 	  	 = EntityType_stone;
-	entity->sprite_id 	 = SpriteID_stone;
-	entity->destructable = false;
-	entity->is_resource  = true;
-}
 
 void entity_init(Entity *entity, Entity_Type type) {
 	switch(type) {
@@ -362,8 +392,9 @@ void draw_ui(Gfx_Font *font, float64 delta_t) {
 			}
 
 			int element_count = 0;
-			for (int entity_type = 0; entity_type < EntityType_count; entity_type++) {
-				Resource_Data *resource = &world->inventory[entity_type];
+			for (int resource_type = 0; resource_type < ResourceID_count; resource_type++) {
+				Resource_Data resource_data       = get_resource_from_id(resource_type);
+				Inventory_Resource_Data *resource = &world->inventory[resource_type];
 				if (resource->count > 0) {
 					float new_element_offset = element_count * element_size.x; 
 
@@ -397,7 +428,7 @@ void draw_ui(Gfx_Font *font, float64 delta_t) {
 #endif
 					}
 
-					Sprite *sprite = get_sprite_from_sprite_id(get_sprite_id_from_entity_type(entity_type));
+					Sprite *sprite = get_sprite_from_sprite_id(get_sprite_id_from_resource_id(resource_type));
 					xform 		   = m4_translate(xform, v3(-get_sprite_size(sprite).x/2, -get_sprite_size(sprite).y/2, 0));
 
 					draw_image_xform(sprite->image, xform, get_sprite_size(sprite), COLOR_WHITE);
@@ -424,7 +455,7 @@ void draw_ui(Gfx_Font *font, float64 delta_t) {
 	
 						Vector2 draw_pos = element_mid;
 						{
-							string title = get_entity_type_name(entity_type);
+							string title = resource_data.name;
 							Gfx_Text_Metrics metrics = measure_text(font, title, FONT_HEIGHT, v2(0.1, 0.1));
 							draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
 							draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(-0.5, -0.5)));
@@ -577,11 +608,17 @@ int entry(int argc, char **argv) {
 		structures[StructureID_alter] = (Structure_Data){ .entity_type=EntityType_alter, .sprite_id=SpriteID_alter };
 	}
 
+	// Resource data setup
+	{
+		resource_data[ResourceID_stone] = (Resource_Data){ .name=STR("Stone"),};
+		resource_data[ResourceID_wood]  = (Resource_Data){ .name=STR("Wood"),};
+	}
+
 	// Resource testing
 	// TODO: @ship get rid of this debug code
 	{
-		//world->inventory[EntityType_wood].count  = 5;
-		//world->inventory[EntityType_stone].count = 5;
+		//world->inventory[ResourceID_wood].count  = 5;
+		//world->inventory[ResourceID_stone].count = 5;
 		Entity *entity = create_entity();
 		oven_init(entity);
 	}
@@ -717,7 +754,7 @@ int entry(int argc, char **argv) {
 				if (entity->is_resource) {
 					f32 distance_to_player = v2_length(v2_sub(entity->pos, player_entity->pos));
 					if (fabsf(distance_to_player) < PICKUP_RADIUS) {
-						world->inventory[entity->type].count += 1;
+						world->inventory[entity->resource_id].count += 1;
 						entity_destroy(entity);
 					}
 				}
@@ -739,13 +776,13 @@ int entry(int argc, char **argv) {
 						switch (selected_entity->type) {
 							case EntityType_tree: {
 								Entity *resource = create_entity();
-								wood_init(resource);
+								resource_init(resource, ResourceID_wood);
 								resource->pos = selected_entity->pos;
 							} break;
 
 							case EntityType_rock: {
 								Entity *resource = create_entity();
-								stone_init(resource);
+								resource_init(resource, ResourceID_stone);
 								resource->pos = selected_entity->pos;
 							} break;
 
